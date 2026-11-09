@@ -322,14 +322,23 @@ def _hashtag(word: str) -> str:
 
 def resource_caption(r: Dict[str, Any], downloads: Optional[int] = None) -> str:
     """Caption shown to teachers when they download a resource."""
+    uploader = h(r.get("uploader_name") or "A fellow teacher")
+    try:
+        contrib_files = db.user_upload_summary(int(r["uploader_id"]))["approved"]
+        if contrib_files >= 1:
+            uploader += f" ({cur.contributor_badge(contrib_files)})"
+    except Exception:  # noqa: BLE001
+        pass
+    likes = int(r.get("likes") or 0)
     lines = [
         f"📚 <b>{h(r['title'])}</b>",
         "",
         f"🎓 <b>Level:</b> {h(cur.level_label(r['level']))}",
         f"📘 <b>Unit:</b> {h(r['unit'])}",
         f"🗂️ <b>Category:</b> {h(r['category'])}",
-        f"👤 <b>Shared by:</b> {h(r.get('uploader_name') or 'A fellow teacher')}",
-        f"📥 <b>Total Downloads:</b> {downloads if downloads is not None else r.get('downloads', 0)}",
+        f"👤 <b>Shared by:</b> {uploader}",
+        f"📥 <b>Downloads:</b> {downloads if downloads is not None else r.get('downloads', 0)}"
+        + (f"  •  ❤️ <b>Thanks:</b> {likes}" if likes else ""),
     ]
     if BOT_USERNAME:
         lines += ["", f"🤖 @{h(BOT_USERNAME)} — Primary ESL DZ Library"]
@@ -409,15 +418,92 @@ def publish_to_archive(r: Dict[str, Any]) -> Optional[int]:
         return None
 
 
+def kb_admin_review(resource_id: int) -> types.InlineKeyboardMarkup:
+    kb = types.InlineKeyboardMarkup()
+    kb.row(
+        btn("✅ Approve & Publish", f"adm_ok:{resource_id}"),
+        btn("❌ Reject", f"adm_no:{resource_id}"),
+    )
+    kb.row(btn("✏️ Edit Metadata", f"adm_ed:{resource_id}"))
+    return kb
+
+
+def kb_admin_edit_menu(resource_id: int, status: str = "pending") -> types.InlineKeyboardMarkup:
+    kb = types.InlineKeyboardMarkup()
+    kb.row(
+        btn("✏️ Title", f"adm_ef:{resource_id}:title"),
+        btn("🎓 Level & Unit", f"adm_ef:{resource_id}:level"),
+    )
+    kb.row(
+        btn("🗂️ Category", f"adm_ef:{resource_id}:cat"),
+        btn("🏷️ Keywords", f"adm_ef:{resource_id}:tags"),
+    )
+    if status == "pending":
+        kb.row(
+            btn("✅ Approve & Publish", f"adm_ok:{resource_id}"),
+            btn("❌ Reject", f"adm_no:{resource_id}"),
+        )
+    else:
+        kb.row(btn("✔️ Done Editing", f"adm_eb:{resource_id}"))
+    return kb
+
+
+def kb_resource_actions(user_id: int, r: Dict[str, Any]) -> types.InlineKeyboardMarkup:
+    rid = r["id"]
+    saved = db.is_favorite(user_id, rid)
+    likes = int(r.get("likes") or 0)
+    kb = types.InlineKeyboardMarkup()
+    kb.row(
+        btn(f"❤️ Thank ({likes})" if likes else "❤️ Thank Teacher", f"lk:{rid}"),
+        btn("🌟 Saved in Bag" if saved else "⭐ Save to Bag", f"fav:{rid}"),
+    )
+    if is_admin(user_id):
+        kb.row(
+            btn("✏️ Edit Metadata", f"adm_ed:{rid}"),
+            btn("⚠️ Report", f"rep:{rid}"),
+        )
+    else:
+        kb.row(btn("⚠️ Report Issue", f"rep:{rid}"))
+    return kb
+
+
+def notify_level_subscribers_async(r: Dict[str, Any]) -> None:
+    """Notify teachers subscribed to `r['level']` when a new file is published."""
+    def _worker() -> None:
+        try:
+            subs = db.list_subscribers(r["level"])
+            if not subs:
+                return
+            kb = types.InlineKeyboardMarkup()
+            kb.row(result_button(r))
+            text = (
+                f"🔔 <b>New {h(r['level'])} Resource Published!</b>\n\n"
+                f"📚 <b>{h(r['title'])}</b>\n"
+                f"📘 {h(r['unit'])}\n"
+                f"🗂️ {h(r['category'])}\n"
+                f"👤 Shared by: {h(r.get('uploader_name') or 'A fellow teacher')}"
+            )
+            for uid in subs:
+                if uid == r.get("uploader_id"):
+                    continue
+                try:
+                    bot.send_message(uid, text, reply_markup=kb)
+                    time.sleep(0.05)
+                except Exception:  # noqa: BLE001
+                    pass
+        except Exception:  # noqa: BLE001
+            log.exception("Failed notifying subscribers for resource #%s", r.get("id"))
+
+    threading.Thread(target=_worker, name="sub-notify", daemon=True).start()
+
+
 def send_for_review(r: Dict[str, Any]) -> Optional[int]:
-    """Send a pending resource to the admin with Approve / Reject buttons."""
+    """Send a pending resource to the admin with Approve / Reject / Edit buttons."""
     if not ADMIN_ID:
         log.warning("ADMIN_ID not set — cannot send resource #%s for review.", r["id"])
         return None
-    kb = types.InlineKeyboardMarkup()
-    kb.row(btn("✅ Approve & Publish", f"adm_ok:{r['id']}"), btn("❌ Reject", f"adm_no:{r['id']}"))
     try:
-        msg = send_file(ADMIN_ID, r, review_caption(r), kb)
+        msg = send_file(ADMIN_ID, r, review_caption(r), kb_admin_review(r["id"]))
         db.set_admin_msg(r["id"], msg.message_id)
         return msg.message_id
     except Exception:  # noqa: BLE001
@@ -433,8 +519,10 @@ def deliver_resource(chat_id: int, user: types.User, resource_id: int) -> bool:
         return False
     register_user(user)
     downloads = db.increment_downloads(resource_id) if r["status"] == "approved" else r["downloads"]
+    r["downloads"] = downloads
+    markup = kb_resource_actions(user.id, r) if chat_id == user.id else None
     try:
-        send_file(chat_id, r, resource_caption(r, downloads))
+        send_file(chat_id, r, resource_caption(r, downloads), markup=markup)
         return True
     except ApiTelegramException as exc:
         log.error("Sending resource #%s failed: %s", resource_id, exc)
@@ -447,12 +535,20 @@ def deliver_resource(chat_id: int, user: types.User, resource_id: int) -> bool:
 # =============================================================================
 BTN_UPLOAD = "📤 Upload Resource"
 BTN_BROWSE = "📂 Browse by Level"
+BTN_BAG = "🎒 My Bag"
+BTN_MY_UPLOADS = "📁 My Uploads"
+BTN_LEADERS = "🏆 Contributors"
 BTN_TOP = "🔥 Top Downloads"
 BTN_LATEST = "🆕 Latest"
+BTN_ALERTS = "🔔 Alerts & Lang"
 BTN_HELP = "ℹ️ Help"
 BTN_STATS = "📊 Stats"
 BTN_PENDING = "⏳ Pending"
-MENU_BUTTONS = {BTN_UPLOAD, BTN_BROWSE, BTN_TOP, BTN_LATEST, BTN_HELP, BTN_STATS, BTN_PENDING}
+BTN_BULK = "📦 Bulk Upload"
+MENU_BUTTONS = {
+    BTN_UPLOAD, BTN_BROWSE, BTN_BAG, BTN_MY_UPLOADS, BTN_LEADERS,
+    BTN_TOP, BTN_LATEST, BTN_ALERTS, BTN_HELP, BTN_STATS, BTN_PENDING, BTN_BULK,
+}
 
 
 def main_menu(user_id: int) -> types.ReplyKeyboardMarkup:
@@ -462,9 +558,10 @@ def main_menu(user_id: int) -> types.ReplyKeyboardMarkup:
         input_field_placeholder="Type keywords… e.g. 3ps family flashcards",
     )
     kb.row(types.KeyboardButton(BTN_UPLOAD), types.KeyboardButton(BTN_BROWSE))
-    kb.row(types.KeyboardButton(BTN_TOP), types.KeyboardButton(BTN_LATEST), types.KeyboardButton(BTN_HELP))
+    kb.row(types.KeyboardButton(BTN_BAG), types.KeyboardButton(BTN_MY_UPLOADS), types.KeyboardButton(BTN_LEADERS))
+    kb.row(types.KeyboardButton(BTN_TOP), types.KeyboardButton(BTN_LATEST), types.KeyboardButton(BTN_ALERTS), types.KeyboardButton(BTN_HELP))
     if is_admin(user_id):
-        kb.row(types.KeyboardButton(BTN_STATS), types.KeyboardButton(BTN_PENDING))
+        kb.row(types.KeyboardButton(BTN_STATS), types.KeyboardButton(BTN_PENDING), types.KeyboardButton(BTN_BULK))
     return kb
 
 
@@ -573,23 +670,17 @@ def kb_browse_categories(level: str, unit_key: str) -> types.InlineKeyboardMarku
 # TEXTS
 # =============================================================================
 def welcome_text(user: types.User) -> str:
+    lang = db.get_user_lang(user.id)
     inline_hint = (
-        f"💬 <b>Inside any group:</b> type <code>@{h(BOT_USERNAME)} family</code> to share a file directly.\n"
+        f"\n💬 <b>Group Inline Search:</b> <code>@{h(BOT_USERNAME)} family</code>\n"
         if BOT_USERNAME else ""
     )
     return (
-        f"👋 Welcome, <b>{h(user.first_name or 'teacher')}</b>!\n\n"
-        "I'm the <b>Primary ESL DZ Library</b> 🇩🇿 — a shared resource bank for "
-        "Algerian primary-school English teachers (<b>3PS • 4PS • 5PS</b>).\n\n"
-        "🔎 <b>Search:</b> just type keywords, e.g.\n"
-        "   • <code>3ps family flashcards</code>\n"
-        "   • <code>lesson plan jobs</code>\n"
-        "   • <code>4ps food worksheet</code>\n"
-        "📂 <b>Browse:</b> tap <i>Browse by Level</i> → Level → Unit → Category\n"
-        "📤 <b>Share:</b> tap <i>Upload Resource</i> (or simply send me a file). "
-        "Every contribution is reviewed before publishing.\n"
-        f"{inline_hint}\n"
-        "Together we build the best ESL library in Algeria! 💪"
+        cur.tr(lang, "welcome_header", name=h(user.first_name or "teacher"))
+        + "\n\n"
+        + cur.tr(lang, "welcome_body")
+        + inline_hint
+        + "\nTogether we build the best ESL library in Algeria! 💪"
     )
 
 
@@ -605,20 +696,23 @@ def help_text(user_id: int) -> str:
         f"<code>@{h(BOT_USERNAME or 'BotUsername')} query</code> and pick a file.\n\n"
         "<b>4) Share a resource</b> — /upload or send a file (PDF, Word, PowerPoint, image, "
         "video, audio). You'll choose the title, level, unit, category and keywords.\n\n"
+        "<b>5) Teacher Bag & Community</b>\n"
+        "   • /favorites (🎒 My Bag) — bookmarked files\n"
+        "   • /my_uploads (📁 My Uploads) — track your shared files & downloads\n"
+        "   • /leaderboard (🏆 Contributors) — top sharing teachers\n"
+        "   • /alerts (🔔 Alerts & Lang) — subscribe to 3PS/4PS/5PS notifications & switch EN/AR/FR\n\n"
         f"<b>Levels</b>\n{levels}\n\n"
         "<b>Commands</b>\n"
-        "/search <code>words</code> — search (works in groups too)\n"
-        "/browse — browse by level\n"
-        "/upload — share a resource\n"
-        "/top — most downloaded · /latest — newest\n"
-        "/cancel — cancel the current upload\n"
-        "/id — show your Telegram ID"
+        "/search <code>words</code> · /browse · /upload · /favorites · /my_uploads · "
+        "/leaderboard · /alerts · /lang · /top · /latest · /cancel · /id"
     )
     if is_admin(user_id):
         text += (
-            "\n\n🛡️ <b>Admin</b>\n"
+            "\n\n🛡️ <b>Admin Power Tools</b>\n"
             "/stats — library statistics\n"
-            "/pending — re-send pending submissions\n"
+            "/pending — review pending submissions (with ✏️ Edit Metadata)\n"
+            "/bulk_upload — batch-publish multiple files to one Level/Unit/Category\n"
+            "/broadcast <code>message</code> — announce to all registered teachers\n"
             "/backup — back up the database now\n"
             "/restore_db — reply to a <code>.db</code> file to restore it\n"
             "/delete <code>ID</code> — delete a resource"
@@ -807,6 +901,7 @@ def finalize_upload(call: types.CallbackQuery, s: Dict[str, Any]) -> None:
 
     if status == "approved":
         archived = publish_to_archive(r)
+        notify_level_subscribers_async(r)
         backup_async(f"Admin upload #{resource_id}")
         text = (
             f"✅ <b>Published!</b>\n\n📚 {h(r['title'])}\n🆔 Resource ID: <code>{resource_id}</code>\n"
@@ -920,8 +1015,123 @@ def send_top(chat_id: int) -> None:
     bot.send_message(chat_id, "\n".join(lines), reply_markup=kb)
 
 
-def send_browse_home(chat_id: int) -> None:
-    bot.send_message(chat_id, "📂 <b>Browse the library</b>\n\nChoose a level:", reply_markup=kb_browse_levels())
+def send_browse_home(chat_id: int, user_id: Optional[int] = None) -> None:
+    lang = db.get_user_lang(user_id) if user_id else "en"
+    bot.send_message(chat_id, cur.tr(lang, "choose_level"), reply_markup=kb_browse_levels())
+
+
+def favorites_view(user_id: int, page: int = 0) -> Tuple[str, Optional[types.InlineKeyboardMarkup]]:
+    lang = db.get_user_lang(user_id)
+    rows, total = db.list_favorites(user_id, PAGE_SIZE, page * PAGE_SIZE)
+    if total == 0:
+        return cur.tr(lang, "bag_empty"), None
+    pages = max(1, math.ceil(total / PAGE_SIZE))
+    page = min(max(page, 0), pages - 1)
+    text = cur.tr(lang, "bag_title", page=page + 1, pages=pages)
+    return text, results_markup(rows, page, total, "fv")
+
+
+def my_uploads_view(user_id: int, page: int = 0) -> Tuple[str, Optional[types.InlineKeyboardMarkup]]:
+    rows, total = db.list_user_uploads(user_id, PAGE_SIZE, page * PAGE_SIZE)
+    summary = db.user_upload_summary(user_id)
+    badge = cur.contributor_badge(summary["approved"])
+    header = (
+        f"📁 <b>My Uploads</b> — {badge}\n\n"
+        f"✅ Published: <b>{summary['approved']}</b> · "
+        f"⏳ Pending: <b>{summary['pending']}</b> · "
+        f"❌ Rejected: <b>{summary['rejected']}</b>\n"
+        f"📥 Total Downloads: <b>{summary['downloads']}</b> · "
+        f"❤️ Thanks Received: <b>{summary['likes']}</b>\n\n"
+    )
+    if total == 0:
+        return header + "You haven't uploaded any resources yet. Tap <b>📤 Upload Resource</b> to share your first file! 🙌", None
+    pages = max(1, math.ceil(total / PAGE_SIZE))
+    page = min(max(page, 0), pages - 1)
+    status_icons = {"approved": "✅", "pending": "⏳", "rejected": "❌"}
+    lines = [header + f"Showing page {page + 1}/{pages}:"]
+    kb = types.InlineKeyboardMarkup()
+    for r in rows:
+        icon = status_icons.get(r["status"], "•")
+        lines.append(
+            f"{icon} [{h(r['level'])}] <b>{h(truncate(r['title'], 42))}</b> "
+            f"— {r['downloads']} 📥 · {r.get('likes', 0)} ❤️ (<code>#{r['id']}</code>)"
+        )
+        if r["status"] == "approved":
+            kb.row(result_button(r))
+    if pages > 1:
+        nav = []
+        if page > 0:
+            nav.append(btn("⬅️ Previous", f"mu:{page - 1}"))
+        nav.append(btn(f"📄 {page + 1}/{pages}", "noop"))
+        if page < pages - 1:
+            nav.append(btn("Next ➡️", f"mu:{page + 1}"))
+        kb.row(*nav)
+    return "\n".join(lines), (kb if kb.keyboard else None)
+
+
+def send_leaderboard(chat_id: int) -> None:
+    leaders = db.top_contributors(10)
+    if not leaders:
+        bot.send_message(chat_id, "🏆 No published contributions yet. Be the first with /upload! 🙌")
+        return
+    medals = ["🥇", "🥈", "🥉"] + [f"{i}." for i in range(4, 11)]
+    lines = ["🏆 <b>Top Teacher Contributors</b>\n"]
+    for medal, row in zip(medals, leaders):
+        name = h(row.get("uploader_name") or f"Teacher {row['uploader_id']}")
+        badge = cur.contributor_badge(int(row["files_count"]))
+        lines.append(
+            f"{medal} <b>{name}</b> ({badge})\n"
+            f"    📚 <b>{row['files_count']}</b> files  •  "
+            f"📥 <b>{row['total_downloads']}</b> downloads  •  "
+            f"❤️ <b>{row['total_likes']}</b> thanks"
+        )
+    lines.append("\nShare your resources with /upload to climb the leaderboard! 💪🇩🇿")
+    bot.send_message(chat_id, "\n".join(lines))
+
+
+def kb_alerts_and_lang(user_id: int) -> types.InlineKeyboardMarkup:
+    subs = set(db.get_user_subscriptions(user_id))
+    lang = db.get_user_lang(user_id)
+    kb = types.InlineKeyboardMarkup()
+    for lv in cur.get_level_keys():
+        active = "✅ 🔔" if lv in subs else "🔕"
+        kb.row(btn(f"{active} {cur.level_label(lv)}", f"sub_t:{lv}"))
+    lang_btns = []
+    for code, label in cur.LANG_NAMES.items():
+        mark = "• " if code == lang else ""
+        lang_btns.append(btn(f"{mark}{label}", f"lng_s:{code}"))
+    kb.row(*lang_btns)
+    return kb
+
+
+def alerts_and_lang_text(user_id: int) -> str:
+    subs = db.get_user_subscriptions(user_id)
+    lang = db.get_user_lang(user_id)
+    sub_str = ", ".join(subs) if subs else "None (tap a level below to subscribe)"
+    return (
+        "🔔 <b>New Resource Alerts & Language</b>\n\n"
+        f"📬 <b>Subscribed levels:</b> <b>{h(sub_str)}</b>\n"
+        "<i>Whenever a new resource is approved for your subscribed levels, I'll send you an instant alert!</i>\n\n"
+        f"🌐 <b>Interface Language:</b> <b>{cur.LANG_NAMES.get(lang, '🇬🇧 English')}</b>\n\n"
+        "Tap below to toggle alerts or switch language 👇"
+    )
+
+
+def start_bulk_upload(message: types.Message) -> None:
+    if not _admin_only(message):
+        return
+    sessions.clear(message.from_user.id)
+    kb = types.InlineKeyboardMarkup()
+    for lv in cur.get_level_keys():
+        kb.row(btn(cur.level_button(lv), f"bk_lv:{lv}"))
+    kb.row(btn(*CANCEL_BTN))
+    msg = bot.send_message(
+        message.chat.id,
+        "📦 <b>Bulk Admin Upload — Step 1/3 (Level)</b>\n\n"
+        "Choose the level that all files in this batch belong to:",
+        reply_markup=kb,
+    )
+    sessions.start(message.from_user.id, step="bulk_level", chat_id=message.chat.id, prompt_msg=msg.message_id)
 
 
 def stats_text() -> str:
@@ -1004,7 +1214,73 @@ def cmd_cancel(message: types.Message) -> None:
 @bot.message_handler(commands=["browse"])
 def cmd_browse(message: types.Message) -> None:
     register_user(message.from_user)
-    send_browse_home(message.chat.id)
+    send_browse_home(message.chat.id, message.from_user.id)
+
+
+@bot.message_handler(commands=["favorites", "bag"])
+def cmd_favorites(message: types.Message) -> None:
+    register_user(message.from_user)
+    text, kb = favorites_view(message.from_user.id, 0)
+    bot.send_message(message.chat.id, text, reply_markup=kb)
+
+
+@bot.message_handler(commands=["my_uploads", "myuploads"])
+def cmd_my_uploads(message: types.Message) -> None:
+    register_user(message.from_user)
+    text, kb = my_uploads_view(message.from_user.id, 0)
+    bot.send_message(message.chat.id, text, reply_markup=kb)
+
+
+@bot.message_handler(commands=["leaderboard", "leaders"])
+def cmd_leaderboard(message: types.Message) -> None:
+    register_user(message.from_user)
+    send_leaderboard(message.chat.id)
+
+
+@bot.message_handler(commands=["alerts", "lang", "language"])
+def cmd_alerts(message: types.Message) -> None:
+    register_user(message.from_user)
+    uid = message.from_user.id
+    bot.send_message(message.chat.id, alerts_and_lang_text(uid), reply_markup=kb_alerts_and_lang(uid))
+
+
+@bot.message_handler(commands=["bulk_upload", "bulkupload"])
+def cmd_bulk_upload(message: types.Message) -> None:
+    start_bulk_upload(message)
+
+
+@bot.message_handler(commands=["broadcast"])
+def cmd_broadcast(message: types.Message) -> None:
+    if not _admin_only(message):
+        return
+    body = util.extract_arguments(message.text or "").strip()
+    if not body:
+        bot.reply_to(
+            message,
+            "📢 <b>Broadcast Usage:</b>\n"
+            "<code>/broadcast Exam period worksheets for 3PS, 4PS & 5PS are now live!</code>",
+        )
+        return
+    user_ids = db.list_all_user_ids()
+    status_msg = bot.reply_to(message, f"📢 Sending announcement to <b>{len(user_ids)}</b> teacher(s)…")
+
+    def _run_broadcast() -> None:
+        sent, failed = 0, 0
+        announcement = f"📢 <b>Announcement — Primary ESL DZ Library</b>\n\n{h(body)}"
+        for uid in user_ids:
+            try:
+                bot.send_message(uid, announcement, disable_web_page_preview=True)
+                sent += 1
+                time.sleep(0.05)
+            except Exception:  # noqa: BLE001
+                failed += 1
+        safe_edit_text(
+            message.chat.id,
+            status_msg.message_id,
+            f"✅ <b>Broadcast finished!</b>\n📬 Delivered: <b>{sent}</b> · ⚠️ Unreachable: <b>{failed}</b>",
+        )
+
+    threading.Thread(target=_run_broadcast, name="broadcast", daemon=True).start()
 
 
 @bot.message_handler(commands=["top"])
@@ -1175,6 +1451,9 @@ def on_menu_button(message: types.Message) -> None:
     if text == BTN_UPLOAD:
         start_upload(message)
         return
+    if text == BTN_BULK:
+        start_bulk_upload(message)
+        return
 
     # Any other menu action cancels an unfinished upload.
     s = sessions.clear(user_id)
@@ -1184,12 +1463,22 @@ def on_menu_button(message: types.Message) -> None:
 
     register_user(message.from_user)
     if text == BTN_BROWSE:
-        send_browse_home(message.chat.id)
+        send_browse_home(message.chat.id, user_id)
+    elif text == BTN_BAG:
+        body, kb = favorites_view(user_id, 0)
+        bot.send_message(message.chat.id, body, reply_markup=kb)
+    elif text == BTN_MY_UPLOADS:
+        body, kb = my_uploads_view(user_id, 0)
+        bot.send_message(message.chat.id, body, reply_markup=kb)
+    elif text == BTN_LEADERS:
+        send_leaderboard(message.chat.id)
     elif text == BTN_TOP:
         send_top(message.chat.id)
     elif text == BTN_LATEST:
         body, kb = latest_view(0)
         bot.send_message(message.chat.id, body, reply_markup=kb)
+    elif text == BTN_ALERTS:
+        bot.send_message(message.chat.id, alerts_and_lang_text(user_id), reply_markup=kb_alerts_and_lang(user_id))
     elif text == BTN_HELP:
         bot.send_message(message.chat.id, help_text(user_id), disable_web_page_preview=True)
     elif text == BTN_STATS:
@@ -1207,6 +1496,52 @@ def on_menu_button(message: types.Message) -> None:
 def on_file(message: types.Message) -> None:
     user = message.from_user
     s = sessions.get(user.id)
+
+    # ---- Admin Bulk Upload Mode (`bulk_files` step) -------------------------
+    if s and s.get("step") == "bulk_files" and is_admin(user.id):
+        info = extract_file(message)
+        if not info:
+            bot.reply_to(message, "⚠️ Unsupported file type.")
+            return
+        duplicate = db.find_duplicate(info["file_unique_id"])
+        if duplicate:
+            bot.reply_to(
+                message,
+                f"♻️ Skipped duplicate: <b>{h(duplicate['title'])}</b> (<code>#{duplicate['id']}</code>)",
+            )
+            return
+        title = suggest_title(message, info) or f"{s['level']} {cur.short_category(s['category'])}"
+        rid = db.add_resource(
+            file_id=info["file_id"],
+            file_unique_id=info.get("file_unique_id"),
+            file_type=info["file_type"],
+            file_name=info.get("file_name"),
+            file_size=info.get("file_size"),
+            mime_type=info.get("mime_type"),
+            title=title,
+            level=s["level"],
+            unit=s["unit"],
+            category=s["category"],
+            tags=normalize_tags(f"{s['level']} {s['unit']} {title}"),
+            uploader_id=user.id,
+            uploader_name=user_full_name(user),
+            uploader_username=user.username,
+            status="approved",
+        )
+        r = db.get_resource(rid)
+        publish_to_archive(r)
+        notify_level_subscribers_async(r)
+        count = int(s.get("bulk_count", 0)) + 1
+        sessions.update(user.id, bulk_count=count)
+        kb = types.InlineKeyboardMarkup()
+        kb.row(btn(f"✅ Finish Bulk Upload ({count} published)", "bk_done"))
+        bot.reply_to(
+            message,
+            f"✅ <b>#{rid} Published:</b> {h(title)}\n"
+            f"📦 Batch total: <b>{count}</b> file(s). Keep sending files or tap Finish below:",
+            reply_markup=kb,
+        )
+        return
 
     # Albums arrive as several messages: silently ignore the extra items.
     if s and message.media_group_id and s.get("media_group_id") == message.media_group_id:
@@ -1295,6 +1630,29 @@ def on_wizard_text(message: types.Message) -> None:
         remove_buttons(message.chat.id, s.get("prompt_msg"))
         sessions.update(user_id, tags=normalize_tags(text))
         show_confirmation(message.chat.id, user_id)
+
+    elif step == "admin_edit_title" and is_admin(user_id):
+        if len(text) < 3 or len(text) > MAX_TITLE_LEN:
+            bot.reply_to(message, f"✏️ Title must be between 3 and {MAX_TITLE_LEN} characters.")
+            return
+        rid = int(s["edit_rid"])
+        r = db.update_resource_metadata(rid, title=text)
+        card_msg_id = s.get("card_msg_id")
+        sessions.clear(user_id)
+        if r and card_msg_id:
+            cap = review_caption(r) if r["status"] == "pending" else resource_caption(r)
+            safe_edit_caption(message.chat.id, card_msg_id, cap, kb_admin_edit_menu(rid, r["status"]))
+        bot.reply_to(message, f"✅ Updated title for <code>#{rid}</code> to: <b>{h(text)}</b>")
+
+    elif step == "admin_edit_tags" and is_admin(user_id):
+        rid = int(s["edit_rid"])
+        r = db.update_resource_metadata(rid, tags=text)
+        card_msg_id = s.get("card_msg_id")
+        sessions.clear(user_id)
+        if r and card_msg_id:
+            cap = review_caption(r) if r["status"] == "pending" else resource_caption(r)
+            safe_edit_caption(message.chat.id, card_msg_id, cap, kb_admin_edit_menu(rid, r["status"]))
+        bot.reply_to(message, f"✅ Updated keywords for <code>#{rid}</code>.")
 
     elif step == "await_file":
         # The teacher changed their mind and typed a search instead of sending a file.
@@ -1442,17 +1800,18 @@ def cb_upload(call: types.CallbackQuery) -> None:
         safe_answer(call)
 
 
-# ---- admin approval callbacks ------------------------------------------------
+# ---- admin approval & in-place edit callbacks -------------------------------
 @bot.callback_query_handler(func=lambda c: (c.data or "").startswith("adm_"))
 def cb_admin_decision(call: types.CallbackQuery) -> None:
     if not is_admin(call.from_user.id):
         safe_answer(call, "⛔ Only the administrator can do this.", alert=True)
         return
-    action, _, raw_id = call.data.partition(":")
-    if not raw_id.isdigit():
+    parts = (call.data or "").split(":")
+    action = parts[0]
+    if len(parts) < 2 or not parts[1].isdigit():
         safe_answer(call, "Invalid request.", alert=True)
         return
-    resource_id = int(raw_id)
+    resource_id = int(parts[1])
     chat_id = call_chat_id(call)
     message_id = call.message.message_id if call.message else None
 
@@ -1469,6 +1828,7 @@ def cb_admin_decision(call: types.CallbackQuery) -> None:
             return
         r = db.get_resource(resource_id)
         archived = publish_to_archive(r)
+        notify_level_subscribers_async(r)
         backup_async(f"Approved resource #{resource_id}")
         safe_answer(call, "✅ Approved & published!")
         if message_id:
@@ -1510,8 +1870,312 @@ def cb_admin_decision(call: types.CallbackQuery) -> None:
                 )
             except ApiTelegramException as exc:
                 log.info("Could not notify contributor %s: %s", r["uploader_id"], exc)
+
+    elif action == "adm_ed":
+        safe_answer(call, "✏️ Select a field to edit")
+        if message_id:
+            cap = review_caption(r) if r["status"] == "pending" else resource_caption(r)
+            safe_edit_caption(chat_id, message_id, cap, kb_admin_edit_menu(resource_id, r["status"]))
+
+    elif action == "adm_eb":
+        safe_answer(call, "✔️ Saved")
+        if message_id:
+            if r["status"] == "pending":
+                safe_edit_caption(chat_id, message_id, review_caption(r), kb_admin_review(resource_id))
+            else:
+                safe_edit_caption(chat_id, message_id, resource_caption(r), kb_resource_actions(call.from_user.id, r))
+
+    elif action == "adm_ef" and len(parts) >= 3:
+        field = parts[2]
+        if field == "title":
+            sessions.start(
+                call.from_user.id,
+                step="admin_edit_title",
+                edit_rid=resource_id,
+                card_msg_id=message_id,
+                chat_id=chat_id,
+            )
+            safe_answer(call)
+            bot.send_message(
+                chat_id,
+                f"✏️ Send the new <b>Title</b> for resource <code>#{resource_id}</code> "
+                f"(current: <i>{h(r['title'])}</i>):",
+                reply_markup=kb_cancel_only(),
+            )
+        elif field == "tags":
+            sessions.start(
+                call.from_user.id,
+                step="admin_edit_tags",
+                edit_rid=resource_id,
+                card_msg_id=message_id,
+                chat_id=chat_id,
+            )
+            safe_answer(call)
+            bot.send_message(
+                chat_id,
+                f"🏷️ Send the new <b>Keywords</b> for resource <code>#{resource_id}</code> "
+                f"(current: <i>{h(r.get('tags') or '—')}</i>):",
+                reply_markup=kb_cancel_only(),
+            )
+        elif field == "level":
+            kb = types.InlineKeyboardMarkup()
+            for lv in cur.get_level_keys():
+                kb.row(btn(cur.level_button(lv), f"adm_el:{resource_id}:{lv}"))
+            kb.row(btn("⬅️ Back", f"adm_ed:{resource_id}"))
+            safe_answer(call)
+            if message_id:
+                cap = review_caption(r) if r["status"] == "pending" else resource_caption(r)
+                safe_edit_caption(chat_id, message_id, cap, kb)
+        elif field == "cat":
+            kb = types.InlineKeyboardMarkup(row_width=2)
+            kb.add(*[btn(c, f"adm_ec:{resource_id}:{i}") for i, c in enumerate(cur.CATEGORIES)])
+            kb.row(btn("⬅️ Back", f"adm_ed:{resource_id}"))
+            safe_answer(call)
+            if message_id:
+                cap = review_caption(r) if r["status"] == "pending" else resource_caption(r)
+                safe_edit_caption(chat_id, message_id, cap, kb)
+
+    elif action == "adm_el" and len(parts) >= 3:
+        lv = parts[2]
+        if not cur.is_valid_level(lv):
+            safe_answer(call, "Invalid level.", alert=True)
+            return
+        kb = types.InlineKeyboardMarkup()
+        for idx, unit in enumerate(cur.get_units(lv)):
+            kb.row(btn(unit, f"adm_eu:{resource_id}:{lv}:{idx}"))
+        kb.row(btn("⬅️ Back", f"adm_ef:{resource_id}:level"))
+        safe_answer(call, f"Choose {lv} unit")
+        if message_id:
+            cap = review_caption(r) if r["status"] == "pending" else resource_caption(r)
+            safe_edit_caption(chat_id, message_id, cap, kb)
+
+    elif action == "adm_eu" and len(parts) >= 4 and parts[3].isdigit():
+        lv = parts[2]
+        unit = cur.get_unit(lv, int(parts[3]))
+        if not unit:
+            safe_answer(call, "Invalid unit.", alert=True)
+            return
+        r = db.update_resource_metadata(resource_id, level=lv, unit=unit)
+        backup_async(f"Edited level/unit of #{resource_id}")
+        safe_answer(call, f"✅ Updated to {lv} · {unit}")
+        if message_id and r:
+            cap = review_caption(r) if r["status"] == "pending" else resource_caption(r)
+            safe_edit_caption(chat_id, message_id, cap, kb_admin_edit_menu(resource_id, r["status"]))
+
+    elif action == "adm_ec" and len(parts) >= 3 and parts[2].isdigit():
+        category = cur.get_category(int(parts[2]))
+        if not category:
+            safe_answer(call, "Invalid category.", alert=True)
+            return
+        r = db.update_resource_metadata(resource_id, category=category)
+        backup_async(f"Edited category of #{resource_id}")
+        safe_answer(call, f"✅ Category updated")
+        if message_id and r:
+            cap = review_caption(r) if r["status"] == "pending" else resource_caption(r)
+            safe_edit_caption(chat_id, message_id, cap, kb_admin_edit_menu(resource_id, r["status"]))
+
+    elif action == "adm_del":
+        deleted = db.delete_resource(resource_id)
+        if deleted and deleted.get("archive_msg_id") and ARCHIVE_CHANNEL_ID:
+            try:
+                bot.delete_message(ARCHIVE_CHANNEL_ID, deleted["archive_msg_id"])
+            except ApiTelegramException:
+                pass
+        backup_async(f"Deleted reported resource #{resource_id}")
+        safe_answer(call, f"🗑 Deleted #{resource_id}", alert=True)
+        if message_id:
+            safe_edit_text(chat_id, message_id, f"🗑 Deleted resource <code>#{resource_id}</code>.")
+
     else:
         safe_answer(call)
+
+
+# ---- teacher engagement callbacks (Favorites, Likes, Reports, Alerts, Bulk) --
+@bot.callback_query_handler(func=lambda c: (c.data or "").startswith("fav:"))
+def cb_favorite(call: types.CallbackQuery) -> None:
+    raw = call.data.split(":", 1)[1]
+    if not raw.isdigit():
+        safe_answer(call)
+        return
+    rid = int(raw)
+    r = db.get_resource(rid)
+    if not r:
+        safe_answer(call, "⚠️ Resource no longer exists.", alert=True)
+        return
+    saved = db.toggle_favorite(call.from_user.id, rid)
+    safe_answer(call, "🌟 Saved to your Bag! (/favorites)" if saved else "Removed from your Bag.")
+    if call.message:
+        try:
+            bot.edit_message_reply_markup(
+                call.message.chat.id,
+                call.message.message_id,
+                reply_markup=kb_resource_actions(call.from_user.id, r),
+            )
+        except ApiTelegramException:
+            pass
+
+
+@bot.callback_query_handler(func=lambda c: (c.data or "").startswith("lk:"))
+def cb_like(call: types.CallbackQuery) -> None:
+    raw = call.data.split(":", 1)[1]
+    if not raw.isdigit():
+        safe_answer(call)
+        return
+    rid = int(raw)
+    r = db.get_resource(rid)
+    if not r:
+        safe_answer(call, "⚠️ Resource no longer exists.", alert=True)
+        return
+    liked, total_likes = db.toggle_like(call.from_user.id, rid)
+    r["likes"] = total_likes
+    safe_answer(call, "❤️ You thanked the contributor!" if liked else "Removed thank.")
+    if call.message:
+        safe_edit_caption(
+            call.message.chat.id,
+            call.message.message_id,
+            resource_caption(r),
+            kb_resource_actions(call.from_user.id, r),
+        )
+    # Milestone notification to contributor (1, 5, 10, 25, 50...)
+    if liked and total_likes in (1, 5, 10, 25, 50, 100) and r["uploader_id"] != call.from_user.id:
+        try:
+            bot.send_message(
+                r["uploader_id"],
+                f"❤️ <b>{total_likes} teacher{'s' if total_likes != 1 else ''}</b> thanked you for sharing "
+                f"<b>{h(r['title'])}</b>! Keep inspiring colleagues! 🌟",
+            )
+        except ApiTelegramException:
+            pass
+
+
+@bot.callback_query_handler(func=lambda c: (c.data or "").startswith("rep:"))
+def cb_report(call: types.CallbackQuery) -> None:
+    raw = call.data.split(":", 1)[1]
+    if not raw.isdigit():
+        safe_answer(call)
+        return
+    rid = int(raw)
+    r = db.get_resource(rid)
+    if not r:
+        safe_answer(call, "⚠️ Resource no longer exists.", alert=True)
+        return
+    is_new, total_reports = db.add_report(call.from_user.id, rid)
+    if not is_new:
+        safe_answer(call, "ℹ️ You have already reported this resource. The admin will check it.", alert=True)
+        return
+    safe_answer(call, "✅ Reported to the administrator. Thank you!", alert=True)
+    if ADMIN_ID:
+        kb = types.InlineKeyboardMarkup()
+        kb.row(btn("📥 Inspect File", f"get_{rid}"), btn(f"🗑 Delete #{rid}", f"adm_del:{rid}"))
+        try:
+            bot.send_message(
+                ADMIN_ID,
+                f"⚠️ <b>Resource Reported ({total_reports} report{'s' if total_reports != 1 else ''})</b>\n\n"
+                f"📚 <b>{h(r['title'])}</b> (ID <code>#{rid}</code>)\n"
+                f"🎓 {h(r['level'])} · 📘 {h(r['unit'])} · 🗂️ {h(r['category'])}\n"
+                f"👤 Reported by: {h(user_display(call.from_user))} (<code>{call.from_user.id}</code>)",
+                reply_markup=kb,
+            )
+        except ApiTelegramException:
+            pass
+
+
+@bot.callback_query_handler(func=lambda c: (c.data or "").startswith(("sub_t:", "lng_s:")))
+def cb_alerts_and_lang(call: types.CallbackQuery) -> None:
+    uid = call.from_user.id
+    chat_id = call_chat_id(call)
+    data = call.data or ""
+    if data.startswith("sub_t:"):
+        lv = data.split(":", 1)[1]
+        if cur.is_valid_level(lv):
+            subs = db.toggle_user_subscription(uid, lv)
+            safe_answer(call, f"🔔 Subscribed to {lv}" if lv in subs else f"🔕 Unsubscribed from {lv}")
+    elif data.startswith("lng_s:"):
+        lang = data.split(":", 1)[1]
+        db.set_user_lang(uid, lang)
+        safe_answer(call, cur.LANG_NAMES.get(lang, lang))
+    if call.message:
+        safe_edit_text(chat_id, call.message.message_id, alerts_and_lang_text(uid), kb_alerts_and_lang(uid))
+
+
+@bot.callback_query_handler(func=lambda c: (c.data or "").startswith("bk_"))
+def cb_bulk_upload(call: types.CallbackQuery) -> None:
+    if not is_admin(call.from_user.id):
+        safe_answer(call, "⛔ Admin only.", alert=True)
+        return
+    uid = call.from_user.id
+    chat_id = call_chat_id(call)
+    mid = call.message.message_id if call.message else None
+    parts = (call.data or "").split(":")
+    action = parts[0]
+    s = sessions.get(uid)
+
+    if action == "bk_done":
+        count = int(s.get("bulk_count", 0)) if s else 0
+        sessions.clear(uid)
+        if count > 0:
+            backup_async(f"Bulk upload ({count} files)")
+        safe_answer(call, f"Finished ({count} files)")
+        if mid:
+            safe_edit_text(
+                chat_id, mid,
+                f"✅ <b>Bulk upload finished!</b> Published <b>{count}</b> file(s) and backed up the database.",
+            )
+        return
+
+    if not s or not mid:
+        safe_answer(call, "⌛ Session expired. Run /bulk_upload again.", alert=True)
+        return
+
+    if action == "bk_lv" and len(parts) >= 2 and cur.is_valid_level(parts[1]):
+        lv = parts[1]
+        sessions.update(uid, step="bulk_unit", level=lv)
+        kb = types.InlineKeyboardMarkup()
+        for idx, u in enumerate(cur.get_units(lv)):
+            kb.row(btn(u, f"bk_un:{idx}"))
+        kb.row(btn(*CANCEL_BTN))
+        safe_answer(call)
+        safe_edit_text(
+            chat_id, mid,
+            f"📦 <b>Bulk Admin Upload — Step 2/3 (Unit)</b>\n🎓 Level: <b>{h(cur.level_label(lv))}</b>\n\nChoose the unit:",
+            kb,
+        )
+    elif action == "bk_un" and len(parts) >= 2 and parts[1].isdigit():
+        unit = cur.get_unit(s.get("level", ""), int(parts[1]))
+        if not unit:
+            safe_answer(call, "Invalid unit.", alert=True)
+            return
+        sessions.update(uid, step="bulk_cat", unit=unit)
+        kb = types.InlineKeyboardMarkup(row_width=2)
+        kb.add(*[btn(c, f"bk_ct:{i}") for i, c in enumerate(cur.CATEGORIES)])
+        kb.row(btn(*CANCEL_BTN))
+        safe_answer(call)
+        safe_edit_text(
+            chat_id, mid,
+            f"📦 <b>Bulk Admin Upload — Step 3/3 (Category)</b>\n"
+            f"🎓 {h(s['level'])} · 📘 {h(unit)}\n\nChoose the category:",
+            kb,
+        )
+    elif action == "bk_ct" and len(parts) >= 2 and parts[1].isdigit():
+        cat = cur.get_category(int(parts[1]))
+        if not cat:
+            safe_answer(call, "Invalid category.", alert=True)
+            return
+        sessions.update(uid, step="bulk_files", category=cat, bulk_count=0)
+        kb = types.InlineKeyboardMarkup()
+        kb.row(btn("✅ Finish Bulk Upload", "bk_done"))
+        safe_answer(call, "Ready for files!")
+        safe_edit_text(
+            chat_id, mid,
+            f"📦 <b>Bulk Mode Active!</b>\n\n"
+            f"🎓 <b>Level:</b> {h(cur.level_label(s['level']))}\n"
+            f"📘 <b>Unit:</b> {h(s['unit'])}\n"
+            f"🗂️ <b>Category:</b> {h(cat)}\n\n"
+            "📥 <b>Now drop as many files as you want!</b>\n"
+            "Each file's title will be auto-extracted from its caption or filename and published immediately.\n"
+            "Tap <b>✅ Finish Bulk Upload</b> when you're done.",
+            kb,
+        )
 
 
 # ---- browse callbacks ----------------------------------------------------------
@@ -1589,6 +2253,36 @@ def cb_latest_page(call: types.CallbackQuery) -> None:
         safe_answer(call, "Invalid page.", alert=True)
         return
     text, kb = latest_view(page)
+    safe_edit_text(call_chat_id(call), call.message.message_id, text, kb)
+    safe_answer(call)
+
+
+@bot.callback_query_handler(func=lambda c: (c.data or "").startswith("fv:"))
+def cb_favorites_page(call: types.CallbackQuery) -> None:
+    if not call.message:
+        safe_answer(call)
+        return
+    try:
+        page = max(0, int(call.data.split(":")[1]))
+    except (ValueError, IndexError):
+        safe_answer(call, "Invalid page.", alert=True)
+        return
+    text, kb = favorites_view(call.from_user.id, page)
+    safe_edit_text(call_chat_id(call), call.message.message_id, text, kb)
+    safe_answer(call)
+
+
+@bot.callback_query_handler(func=lambda c: (c.data or "").startswith("mu:"))
+def cb_my_uploads_page(call: types.CallbackQuery) -> None:
+    if not call.message:
+        safe_answer(call)
+        return
+    try:
+        page = max(0, int(call.data.split(":")[1]))
+    except (ValueError, IndexError):
+        safe_answer(call, "Invalid page.", alert=True)
+        return
+    text, kb = my_uploads_view(call.from_user.id, page)
     safe_edit_text(call_chat_id(call), call.message.message_id, text, kb)
     safe_answer(call)
 
@@ -1697,9 +2391,8 @@ def health():
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    header_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
-    if header_secret and header_secret != WEBHOOK_SECRET:
-        log.warning("Rejected webhook request with mismatched secret token")
+    if request.headers.get("X-Telegram-Bot-Api-Secret-Token") != WEBHOOK_SECRET:
+        log.warning("Rejected webhook request with missing or mismatched secret token")
         abort(403)
     try:
         raw_body = request.get_data(as_text=True)
@@ -1733,6 +2426,10 @@ def setup_bot_commands() -> None:
         types.BotCommand("search", "Search resources, e.g. /search 3ps family"),
         types.BotCommand("browse", "Browse by level, unit & category"),
         types.BotCommand("upload", "Share a resource with teachers"),
+        types.BotCommand("favorites", "My saved bag of bookmarked resources"),
+        types.BotCommand("my_uploads", "Check your shared files & download stats"),
+        types.BotCommand("leaderboard", "Top teacher contributors"),
+        types.BotCommand("alerts", "Subscribe to level alerts & switch language"),
         types.BotCommand("top", "Most downloaded resources"),
         types.BotCommand("latest", "Newest resources"),
         types.BotCommand("cancel", "Cancel the current upload"),
@@ -1742,6 +2439,8 @@ def setup_bot_commands() -> None:
     admin = public + [
         types.BotCommand("stats", "Library statistics"),
         types.BotCommand("pending", "Review pending submissions"),
+        types.BotCommand("bulk_upload", "Batch upload multiple files to one unit"),
+        types.BotCommand("broadcast", "Send announcement to all teachers"),
         types.BotCommand("backup", "Back up the database now"),
         types.BotCommand("restore_db", "Reply to a .db file to restore it"),
         types.BotCommand("delete", "Delete a resource: /delete ID"),

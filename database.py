@@ -72,6 +72,8 @@ CREATE TABLE IF NOT EXISTS resources (
     uploader_username TEXT,
     status            TEXT    NOT NULL DEFAULT 'pending',
     downloads         INTEGER NOT NULL DEFAULT 0,
+    likes             INTEGER NOT NULL DEFAULT 0,
+    reports           INTEGER NOT NULL DEFAULT 0,
     archive_msg_id    INTEGER,
     admin_msg_id      INTEGER,
     created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
@@ -79,11 +81,34 @@ CREATE TABLE IF NOT EXISTS resources (
 );
 
 CREATE TABLE IF NOT EXISTS users (
-    user_id     INTEGER PRIMARY KEY,
-    full_name   TEXT,
-    username    TEXT,
-    first_seen  TEXT NOT NULL DEFAULT (datetime('now')),
-    last_seen   TEXT NOT NULL DEFAULT (datetime('now'))
+    user_id       INTEGER PRIMARY KEY,
+    full_name     TEXT,
+    username      TEXT,
+    lang          TEXT NOT NULL DEFAULT 'en',
+    notify_levels TEXT NOT NULL DEFAULT '',
+    first_seen    TEXT NOT NULL DEFAULT (datetime('now')),
+    last_seen     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS favorites (
+    user_id     INTEGER NOT NULL,
+    resource_id INTEGER NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, resource_id)
+);
+
+CREATE TABLE IF NOT EXISTS likes (
+    user_id     INTEGER NOT NULL,
+    resource_id INTEGER NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, resource_id)
+);
+
+CREATE TABLE IF NOT EXISTS reports (
+    user_id     INTEGER NOT NULL,
+    resource_id INTEGER NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, resource_id)
 );
 
 CREATE TABLE IF NOT EXISTS meta (
@@ -97,6 +122,8 @@ CREATE INDEX IF NOT EXISTS idx_resources_status    ON resources(status);
 CREATE INDEX IF NOT EXISTS idx_resources_browse    ON resources(status, level, unit, category);
 CREATE INDEX IF NOT EXISTS idx_resources_unique    ON resources(file_unique_id);
 CREATE INDEX IF NOT EXISTS idx_resources_downloads ON resources(downloads);
+CREATE INDEX IF NOT EXISTS idx_resources_uploader  ON resources(uploader_id);
+CREATE INDEX IF NOT EXISTS idx_favorites_user      ON favorites(user_id);
 """
 
 # Columns that must exist (used to migrate databases restored from older
@@ -111,6 +138,8 @@ REQUIRED_COLUMNS: Dict[str, Dict[str, str]] = {
         "uploader_name": "TEXT",
         "uploader_username": "TEXT",
         "downloads": "INTEGER NOT NULL DEFAULT 0",
+        "likes": "INTEGER NOT NULL DEFAULT 0",
+        "reports": "INTEGER NOT NULL DEFAULT 0",
         "archive_msg_id": "INTEGER",
         "admin_msg_id": "INTEGER",
         "approved_at": "TEXT",
@@ -118,6 +147,8 @@ REQUIRED_COLUMNS: Dict[str, Dict[str, str]] = {
     "users": {
         "full_name": "TEXT",
         "username": "TEXT",
+        "lang": "TEXT NOT NULL DEFAULT 'en'",
+        "notify_levels": "TEXT NOT NULL DEFAULT ''",
     },
 }
 
@@ -288,6 +319,71 @@ class Database:
         with self._connect() as conn:
             return conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
 
+    def get_user(self, user_id: int) -> Optional[Dict[str, Any]]:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
+        return self._row(row)
+
+    def get_user_lang(self, user_id: int) -> str:
+        with self._connect() as conn:
+            row = conn.execute("SELECT lang FROM users WHERE user_id = ?", (user_id,)).fetchone()
+        return (row["lang"] if row and row["lang"] else "en")
+
+    def set_user_lang(self, user_id: int, lang: str) -> None:
+        if lang not in ("en", "ar", "fr"):
+            lang = "en"
+        with self._connect() as conn:
+            cur = conn.execute("UPDATE users SET lang = ? WHERE user_id = ?", (lang, user_id))
+            if cur.rowcount == 0:
+                now = utcnow()
+                conn.execute(
+                    "INSERT INTO users(user_id, lang, first_seen, last_seen) VALUES(?, ?, ?, ?)",
+                    (user_id, lang, now, now),
+                )
+            self._mark_dirty()
+
+    def get_user_subscriptions(self, user_id: int) -> List[str]:
+        with self._connect() as conn:
+            row = conn.execute("SELECT notify_levels FROM users WHERE user_id = ?", (user_id,)).fetchone()
+        if not row or not row["notify_levels"]:
+            return []
+        return [lv for lv in row["notify_levels"].split(",") if lv]
+
+    def toggle_user_subscription(self, user_id: int, level: str) -> List[str]:
+        current = self.get_user_subscriptions(user_id)
+        if level in current:
+            current.remove(level)
+        else:
+            current.append(level)
+        val = ",".join(current)
+        with self._connect() as conn:
+            cur = conn.execute("UPDATE users SET notify_levels = ? WHERE user_id = ?", (val, user_id))
+            if cur.rowcount == 0:
+                now = utcnow()
+                conn.execute(
+                    "INSERT INTO users(user_id, notify_levels, first_seen, last_seen) VALUES(?, ?, ?, ?)",
+                    (user_id, val, now, now),
+                )
+            self._mark_dirty()
+        return current
+
+    def list_subscribers(self, level: str) -> List[int]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT user_id, notify_levels FROM users "
+                "WHERE notify_levels != '' AND notify_levels IS NOT NULL"
+            ).fetchall()
+        return [
+            int(r["user_id"])
+            for r in rows
+            if level in (r["notify_levels"] or "").split(",")
+        ]
+
+    def list_all_user_ids(self) -> List[int]:
+        with self._connect() as conn:
+            rows = conn.execute("SELECT user_id FROM users ORDER BY user_id").fetchall()
+        return [int(r["user_id"]) for r in rows]
+
     # ------------------------------------------------------------- resources
     def add_resource(
         self,
@@ -397,6 +493,43 @@ class Database:
             )
             self._mark_dirty()
 
+    def update_resource_metadata(
+        self,
+        resource_id: int,
+        *,
+        title: Optional[str] = None,
+        level: Optional[str] = None,
+        unit: Optional[str] = None,
+        category: Optional[str] = None,
+        tags: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        updates: List[str] = []
+        params: List[Any] = []
+        if title is not None:
+            updates.append("title = ?")
+            params.append(title.strip())
+        if level is not None:
+            updates.append("level = ?")
+            params.append(level)
+        if unit is not None:
+            updates.append("unit = ?")
+            params.append(unit)
+        if category is not None:
+            updates.append("category = ?")
+            params.append(category)
+        if tags is not None:
+            updates.append("tags = ?")
+            params.append(normalize_tags(tags))
+        if not updates:
+            return self.get_resource(resource_id)
+        params.append(resource_id)
+        with self._connect() as conn:
+            conn.execute(
+                f"UPDATE resources SET {', '.join(updates)} WHERE id = ?", params
+            )
+            self._mark_dirty()
+        return self.get_resource(resource_id)
+
     def delete_resource(self, resource_id: int) -> Optional[Dict[str, Any]]:
         """Delete a resource and return the deleted row (or None if not found)."""
         with self._connect() as conn:
@@ -404,8 +537,168 @@ class Database:
             if row is None:
                 return None
             conn.execute("DELETE FROM resources WHERE id = ?", (resource_id,))
+            conn.execute("DELETE FROM favorites WHERE resource_id = ?", (resource_id,))
+            conn.execute("DELETE FROM likes WHERE resource_id = ?", (resource_id,))
+            conn.execute("DELETE FROM reports WHERE resource_id = ?", (resource_id,))
             self._mark_dirty()
             return dict(row)
+
+    def toggle_favorite(self, user_id: int, resource_id: int) -> bool:
+        """Toggle bookmark in teacher's bag. Returns True if now saved, False if removed."""
+        with self._connect() as conn:
+            existing = conn.execute(
+                "SELECT 1 FROM favorites WHERE user_id = ? AND resource_id = ?",
+                (user_id, resource_id),
+            ).fetchone()
+            if existing:
+                conn.execute(
+                    "DELETE FROM favorites WHERE user_id = ? AND resource_id = ?",
+                    (user_id, resource_id),
+                )
+                self._mark_dirty()
+                return False
+            conn.execute(
+                "INSERT INTO favorites(user_id, resource_id, created_at) VALUES(?, ?, ?)",
+                (user_id, resource_id, utcnow()),
+            )
+            self._mark_dirty()
+            return True
+
+    def is_favorite(self, user_id: int, resource_id: int) -> bool:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM favorites WHERE user_id = ? AND resource_id = ?",
+                (user_id, resource_id),
+            ).fetchone()
+        return row is not None
+
+    def list_favorites(
+        self, user_id: int, limit: int = 10, offset: int = 0
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        with self._connect() as conn:
+            total = conn.execute(
+                "SELECT COUNT(*) FROM favorites f "
+                "JOIN resources r ON r.id = f.resource_id "
+                "WHERE f.user_id = ? AND r.status = 'approved'",
+                (user_id,),
+            ).fetchone()[0]
+            rows = conn.execute(
+                "SELECT r.* FROM favorites f "
+                "JOIN resources r ON r.id = f.resource_id "
+                "WHERE f.user_id = ? AND r.status = 'approved' "
+                "ORDER BY f.created_at DESC LIMIT ? OFFSET ?",
+                (user_id, limit, offset),
+            ).fetchall()
+        return self._rows(rows), int(total)
+
+    def toggle_like(self, user_id: int, resource_id: int) -> Tuple[bool, int]:
+        """Toggle 'Thank Teacher' ❤️ on a resource. Returns (liked_now, total_likes)."""
+        with self._connect() as conn:
+            existing = conn.execute(
+                "SELECT 1 FROM likes WHERE user_id = ? AND resource_id = ?",
+                (user_id, resource_id),
+            ).fetchone()
+            if existing:
+                conn.execute(
+                    "DELETE FROM likes WHERE user_id = ? AND resource_id = ?",
+                    (user_id, resource_id),
+                )
+                liked = False
+            else:
+                conn.execute(
+                    "INSERT INTO likes(user_id, resource_id, created_at) VALUES(?, ?, ?)",
+                    (user_id, resource_id, utcnow()),
+                )
+                liked = True
+            total = conn.execute(
+                "SELECT COUNT(*) FROM likes WHERE resource_id = ?", (resource_id,)
+            ).fetchone()[0]
+            conn.execute(
+                "UPDATE resources SET likes = ? WHERE id = ?", (int(total), resource_id)
+            )
+            self._mark_dirty()
+        return liked, int(total)
+
+    def add_report(self, user_id: int, resource_id: int) -> Tuple[bool, int]:
+        """Record a user report on a resource. Returns (is_new_report, total_reports)."""
+        with self._connect() as conn:
+            existing = conn.execute(
+                "SELECT 1 FROM reports WHERE user_id = ? AND resource_id = ?",
+                (user_id, resource_id),
+            ).fetchone()
+            if existing:
+                total = conn.execute(
+                    "SELECT COUNT(*) FROM reports WHERE resource_id = ?", (resource_id,)
+                ).fetchone()[0]
+                return False, int(total)
+            conn.execute(
+                "INSERT INTO reports(user_id, resource_id, created_at) VALUES(?, ?, ?)",
+                (user_id, resource_id, utcnow()),
+            )
+            total = conn.execute(
+                "SELECT COUNT(*) FROM reports WHERE resource_id = ?", (resource_id,)
+            ).fetchone()[0]
+            conn.execute(
+                "UPDATE resources SET reports = ? WHERE id = ?", (int(total), resource_id)
+            )
+            self._mark_dirty()
+            return True, int(total)
+
+    def list_user_uploads(
+        self, uploader_id: int, limit: int = 10, offset: int = 0
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        with self._connect() as conn:
+            total = conn.execute(
+                "SELECT COUNT(*) FROM resources WHERE uploader_id = ?", (uploader_id,)
+            ).fetchone()[0]
+            rows = conn.execute(
+                "SELECT * FROM resources WHERE uploader_id = ? "
+                "ORDER BY id DESC LIMIT ? OFFSET ?",
+                (uploader_id, limit, offset),
+            ).fetchall()
+        return self._rows(rows), int(total)
+
+    def user_upload_summary(self, uploader_id: int) -> Dict[str, int]:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT
+                    SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) AS approved,
+                    SUM(CASE WHEN status = 'pending'  THEN 1 ELSE 0 END) AS pending,
+                    SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) AS rejected,
+                    SUM(CASE WHEN status = 'approved' THEN downloads ELSE 0 END) AS downloads,
+                    SUM(CASE WHEN status = 'approved' THEN likes ELSE 0 END) AS likes
+                FROM resources WHERE uploader_id = ?
+                """,
+                (uploader_id,),
+            ).fetchone()
+        return {
+            "approved": int(row["approved"] or 0),
+            "pending": int(row["pending"] or 0),
+            "rejected": int(row["rejected"] or 0),
+            "downloads": int(row["downloads"] or 0),
+            "likes": int(row["likes"] or 0),
+        }
+
+    def top_contributors(self, limit: int = 10) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    uploader_id,
+                    MAX(uploader_name) AS uploader_name,
+                    COUNT(*) AS files_count,
+                    IFNULL(SUM(downloads), 0) AS total_downloads,
+                    IFNULL(SUM(likes), 0) AS total_likes
+                FROM resources
+                WHERE status = 'approved'
+                GROUP BY uploader_id
+                ORDER BY files_count DESC, total_downloads DESC, total_likes DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return self._rows(rows)
 
     def increment_downloads(self, resource_id: int) -> int:
         with self._connect() as conn:

@@ -228,3 +228,80 @@ def short_category(category: str) -> str:
 
 def file_type_label(file_type: str) -> str:
     return FILE_TYPES.get(file_type, file_type)
+
+
+# ---------------------------------------------------------------------------
+# TRILINGUAL UI STRINGS (EN / AR / FR)
+# ---------------------------------------------------------------------------
+LANG_NAMES: Dict[str, str] = {
+    "en": "🇬🇧 English",
+    "ar": "🇩🇿 العربية",
+    "fr": "🇫🇷 Français",
+}
+
+UI_STRINGS: Dict[str, Dict[str, str]] = {
+    "en": {
+        "welcome_header": "👋 Welcome, <b>{name}</b>!",
+        "welcome_body": (
+            "I'm the <b>Primary ESL DZ Library</b> 🇩🇿 — a shared resource bank for "
+            "Algerian primary-school English teachers (<b>3PS • 4PS • 5PS</b>).\n\n"
+            "🔎 <b>Search:</b> just type keywords (e.g. <code>3ps family flashcards</code>)\n"
+            "📂 <b>Browse:</b> tap <i>Browse by Level</i>\n"
+            "🎒 <b>My Bag:</b> save your favorite files for Sunday prep (/favorites)\n"
+            "🏆 <b>Leaderboard:</b> celebrate top teacher contributors (/leaderboard)\n"
+            "🔔 <b>Alerts:</b> get notified when new files drop for your level (/alerts)"
+        ),
+        "choose_level": "📂 <b>Browse the library</b>\n\nChoose a level:",
+        "bag_title": "🎒 <b>My Saved Bag</b> — page {page}/{pages}\n\nTap a resource to download it 👇",
+        "bag_empty": "🎒 Your saved bag is empty.\nTap <b>⭐ Save to Bag</b> under any downloaded file to bookmark it here!",
+        "lang_saved": "✅ Language updated to <b>🇬🇧 English</b>.",
+    },
+    "ar": {
+        "welcome_header": "👋 مرحباً بك أستاذ(ة) <b>{name}</b>!",
+        "welcome_body": (
+            "أنا <b>مكتبة اللغة الإنجليزية للطور الابتدائي</b> 🇩🇿 (<b>3PS • 4PS • 5PS</b>).\n\n"
+            "🔎 <b>البحث المباشر:</b> اكتب أي كلمات مفتاحية (مثال: <code>3ps family flashcards</code>)\n"
+            "📂 <b>التصفح حسب المستوى:</b> اضغط على <i>Browse by Level</i>\n"
+            "🎒 <b>حقيبتي:</b> احفظ ملفاتك المفضلة لتحضير الدروس (/favorites)\n"
+            "🏆 <b>لوحة الشرف:</b> أفضل الأساتذة المساهمين (/leaderboard)\n"
+            "🔔 <b>التنبيهات:</b> اشترك في إشعارات مستواك الدراسي (/alerts)"
+        ),
+        "choose_level": "📂 <b>تصفح المكتبة حسب المستوى</b>\n\nاختر المستوى الدراسي:",
+        "bag_title": "🎒 <b>حقيبتي المحفوظة</b> — صفحة {page}/{pages}\n\nاضغط على أي ملف لتحميله 👇",
+        "bag_empty": "🎒 حقيبتك فارغة حالياً.\nاضغط على <b>⭐ Save to Bag</b> أسفل أي ملف لحفظه هنا!",
+        "lang_saved": "✅ تم تغيير اللغة إلى <b>🇩🇿 العربية</b>.",
+    },
+    "fr": {
+        "welcome_header": "👋 Bienvenue, <b>{name}</b> !",
+        "welcome_body": (
+            "Bienvenue sur la <b>Bibliothèque Primary ESL DZ</b> 🇩🇿 pour les enseignants "
+            "d'anglais du primaire en Algérie (<b>3PS • 4PS • 5PS</b>).\n\n"
+            "🔎 <b>Rechercher :</b> tapez vos mots-clés (ex. <code>3ps family flashcards</code>)\n"
+            "📂 <b>Parcourir :</b> appuyez sur <i>Browse by Level</i>\n"
+            "🎒 <b>Mon Cartable :</b> gardez vos fichiers favoris (/favorites)\n"
+            "🏆 <b>Classement :</b> meilleurs enseignants contributeurs (/leaderboard)\n"
+            "🔔 <b>Alertes :</b> recevez une notification pour vos niveaux (/alerts)"
+        ),
+        "choose_level": "📂 <b>Parcourir la bibliothèque</b>\n\nChoisissez un niveau :",
+        "bag_title": "🎒 <b>Mon Cartable</b> — page {page}/{pages}\n\nAppuyez sur une ressource pour la télécharger 👇",
+        "bag_empty": "🎒 Votre cartable est vide.\nAppuyez sur <b>⭐ Save to Bag</b> sous un fichier pour l'enregistrer !",
+        "lang_saved": "✅ Langue définie sur <b>🇫🇷 Français</b>.",
+    },
+}
+
+
+def tr(lang: str, key: str, **kwargs) -> str:
+    table = UI_STRINGS.get(lang) or UI_STRINGS["en"]
+    template = table.get(key) or UI_STRINGS["en"].get(key, key)
+    return template.format(**kwargs) if kwargs else template
+
+
+def contributor_badge(files_count: int) -> str:
+    if files_count >= 15:
+        return "🥇 Gold Contributor"
+    if files_count >= 5:
+        return "🥈 Silver Contributor"
+    if files_count >= 1:
+        return "🥉 Bronze Contributor"
+    return "🌱 New Member"
+
