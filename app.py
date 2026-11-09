@@ -78,8 +78,22 @@ if not BOT_TOKEN:
 
 ADMIN_ID = _env_int("ADMIN_ID")
 ARCHIVE_CHANNEL_ID = _env_int("ARCHIVE_CHANNEL_ID")
-# WEBHOOK_URL is preferred; Render also injects RENDER_EXTERNAL_URL automatically.
-WEBHOOK_URL = (os.environ.get("WEBHOOK_URL") or os.environ.get("RENDER_EXTERNAL_URL") or "").strip().rstrip("/")
+def _resolve_webhook_url() -> str:
+    """
+    Pick the public webhook base URL.
+    Render automatically sets RENDER_EXTERNAL_URL to the actual service URL
+    (e.g. https://primaryesl-dz-bot.onrender.com). If WEBHOOK_URL was typed
+    with the old template default 'primary-esl-dz-bot.onrender.com' while
+    RENDER_EXTERNAL_URL points to the real service, prefer RENDER_EXTERNAL_URL.
+    """
+    render_url = (os.environ.get("RENDER_EXTERNAL_URL") or "").strip().rstrip("/")
+    manual_url = (os.environ.get("WEBHOOK_URL") or "").strip().rstrip("/")
+    if render_url and (not manual_url or "primary-esl-dz-bot.onrender.com" in manual_url):
+        return render_url
+    return manual_url or render_url
+
+
+WEBHOOK_URL = _resolve_webhook_url()
 PORT = _env_int("PORT", 10000)
 DB_PATH = os.environ.get("DB_PATH", "esl_library.db")
 BACKUP_INTERVAL_MINUTES = _env_int("BACKUP_INTERVAL_MINUTES", 360)
@@ -1653,6 +1667,7 @@ def index():
         message="Primary ESL Bot is running!",
         bot=f"@{BOT_USERNAME}" if BOT_USERNAME else None,
         mode=RUN_MODE,
+        webhook_url=f"{WEBHOOK_URL}/webhook" if WEBHOOK_URL else None,
         uptime_seconds=int(time.time() - START_TIME),
         resources=db.count_resources("approved"),
     )

@@ -20,7 +20,7 @@ services:
       - key: ARCHIVE_CHANNEL_ID
         sync: false
       - key: WEBHOOK_URL
-        sync: false
+        value: https://primaryesl-dz-bot.onrender.com
       - key: PORT
         value: "10000"
       - key: BACKUP_INTERVAL_MINUTES
