@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>@PrimaryESL_DZ_Bot — Interactive Problem-Solving Video Tutorial</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    @keyframes pulseRing {
+      0% { transform: scale(0.5); opacity: 0.95; }
+      100% { transform: scale(2.4); opacity: 0; }
+    }
+    @keyframes floatSlow {
+      0%, 100% { transform: translateY(0px); }
+      50% { transform: translateY(-4px); }
+    }
+    @keyframes msgPop {
+      0% { opacity: 0; transform: translateY(10px) scale(0.97); }
+      100% { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .msg-animate {
+      animation: msgPop 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    .cursor-transition {
+      transition: left 0.55s cubic-bezier(0.22, 1, 0.36, 1), top 0.55s cubic-bezier(0.22, 1, 0.36, 1), transform 0.15s ease;
+    }
+    .click-ripple {
+      animation: pulseRing 0.55s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    .tg-pattern {
+      background-color: #0f172a;
+      background-image: radial-gradient(rgba(16, 185, 129, 0.08) 1px, transparent 1px),
+                        radial-gradient(rgba(56, 189, 248, 0.06) 1px, #0f172a 1px);
+      background-size: 24px 24px;
+      background-position: 0 0, 12px 12px;
+    }
+    .btn-highlight {
+      box-shadow: 0 0 0 2px #10b981, 0 0 16px rgba(16, 185, 129, 0.55);
+      transform: scale(0.97);
+    }
+    /* Custom thin scrollbar for chat */
+    .chat-scroll::-webkit-scrollbar {
+      width: 5px;
+    }
+    .chat-scroll::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .chat-scroll::-webkit-scrollbar-thumb {
+      background: rgba(148, 163, 184, 0.25);
+      border-radius: 9999px;
+    }
+  </style>
+</head>
+<body class="bg-[var(--background)] text-[var(--foreground)] antialiased selection:bg-emerald-500/20 p-3 sm:p-5">
+
+  <!-- Main Player Container -->
+  <div class="max-w-5xl mx-auto bg-[var(--card)] border border-[var(--border)] rounded-2xl shadow-xl overflow-hidden">
+
+    <!-- Top Header Bar -->
+    <div class="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b border-[var(--border)] bg-[var(--content)]">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-700 flex items-center justify-center text-white font-bold text-xs shadow-sm">
+          DZ
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-sm sm:text-base font-bold text-[var(--foreground)]">
+              @PrimaryESL_DZ_Bot — Video Walkthrough
+            </h1>
+            <span class="px-2 py-0.5 text-xs font-semibold rounded-full bg-emerald-500/15 text-emerald-500 border border-emerald-500/30">
+              Problem → Solution Demo
+            </span>
+          </div>
+          <p class="text-xs text-[var(--muted-foreground)]">
+            How Algerian 3PS, 4PS &amp; 5PS Teachers Find &amp; Share Official Resources in Seconds
+          </p>
+        </div>
+      </div>
+
+      <!-- Chapter Pills -->
+      <div class="flex items-center gap-1.5 flex-wrap" id="chapterPills">
+        <button onclick="jumpToScene(0)" data-scene-btn="0" class="px-2.5 py-1 rounded-lg text-xs font-medium transition border border-[var(--border)]">
+          1. The Problem
+        </button>
+        <button onclick="jumpToScene(1)" data-scene-btn="1" class="px-2.5 py-1 rounded-lg text-xs font-medium transition border border-[var(--border)]">
+          2. Didactic Tree
+        </button>
+        <button onclick="jumpToScene(2)" data-scene-btn="2" class="px-2.5 py-1 rounded-lg text-xs font-medium transition border border-[var(--border)]">
+          3. Smart Search
+        </button>
+        <button onclick="jumpToScene(3)" data-scene-btn="3" class="px-2.5 py-1 rounded-lg text-xs font-medium transition border border-[var(--border)]">
+          4. Upload &amp; Badges
+        </button>
+        <button onclick="jumpToScene(4)" data-scene-btn="4" class="px-2.5 py-1 rounded-lg text-xs font-medium transition border border-[var(--border)]">
+          5. Results
+        </button>
+      </div>
+    </div>
+
+    <!-- Stage Area: Left Context Panel + Right Animated Telegram Simulator -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 bg-slate-950 text-slate-100 relative">
+
+      <!-- Left Narrative & Problem-Solving Inspector (5 cols on lg) -->
+      <div class="lg:col-span-5 p-5 flex flex-col justify-between border-b lg:border-b-0 lg:border-r border-slate-800/80 bg-gradient-to-b from-slate-900/90 to-slate-950">
+        <div>
+          <!-- Scene Badge -->
+          <div class="flex items-center justify-between gap-2 mb-3">
+            <span id="sceneBadge" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+              ⚠️ SCENE 1 OF 5 • THE PROBLEM
+            </span>
+            <span id="sceneTimerBadge" class="text-xs font-mono text-slate-400">00:00 / 00:46</span>
+          </div>
+
+          <!-- Scene Title -->
+          <h2 id="sceneTitle" class="text-lg sm:text-xl font-bold text-white leading-snug mb-1.5">
+            Lost Files in Messy Social Media Groups
+          </h2>
+          <p id="sceneTitleAr" dir="rtl" class="text-sm font-medium text-emerald-400 mb-3">
+            ضياع الملفات وسط فوضى المجموعات في فيسبوك وتيليغرام
+          </p>
+
+          <!-- Problem vs Solution Breakdown Card -->
+          <div id="sceneExplainCard" class="rounded-xl bg-slate-900/90 border border-slate-800 p-3.5 space-y-2.5 mb-4">
+            <!-- Dynamically populated per scene -->
+          </div>
+
+          <!-- Live Curriculum Path Breadcrumb Visualization -->
+          <div class="rounded-xl bg-slate-900/60 border border-slate-800/90 p-3">
+            <div class="flex items-center justify-between text-xs text-slate-400 mb-2">
+              <span class="font-semibold text-slate-300">🌳 Active Curriculum Path</span>
+              <span id="activeActionStatus" class="text-emerald-400 font-mono text-xs">Observing...</span>
+            </div>
+            <div id="breadcrumbTrail" class="flex flex-wrap items-center gap-1.5 text-xs">
+              <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-400">Waiting for teacher action…</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bottom Tip / Live Link Card -->
+        <div class="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between gap-2 text-xs text-slate-400">
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+            <span>Live Bot: <strong class="text-white">@PrimaryESL_DZ_Bot</strong></span>
+          </div>
+          <a href="https://t.me/PrimaryESL_DZ_Bot" target="_blank" rel="noopener"
+             class="px-2.5 py-1 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 font-medium transition">
+            Open in Telegram ↗
+          </a>
+        </div>
+      </div>
+
+      <!-- Right Animated Stage: Telegram Simulator + Cursor (7 cols on lg) -->
+      <div class="lg:col-span-7 p-4 sm:p-6 flex items-center justify-center tg-pattern relative overflow-hidden" id="stageContainer" style="min-height: 450px;">
+
+        <!-- Simulated Phone / Desktop Telegram Window -->
+        <div id="tgWindow" class="w-full max-w-md bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col relative" style="height: 420px;">
+
+          <!-- Telegram Top App Header -->
+          <div class="px-3.5 py-2.5 bg-slate-800/95 border-b border-slate-700/80 flex items-center justify-between select-none">
+            <div class="flex items-center gap-2.5">
+              <!-- Bot Avatar -->
+              <div id="headerAvatar" class="w-9 h-9 rounded-full bg-gradient-to-tr from-emerald-600 via-teal-500 to-sky-500 flex items-center justify-center text-white font-extrabold text-xs shadow ring-2 ring-emerald-400/40">
+                DZ
+              </div>
+              <div>
+                <div class="flex items-center gap-1.5">
+                  <span id="headerTitle" class="text-sm font-bold text-white">Primary ESL DZ Bot</span>
+                  <span id="headerVerified" class="text-xs text-sky-400" title="Verified Official Curriculum Structure">✔</span>
+                </div>
+                <div id="headerSubtitle" class="text-xs text-emerald-400 font-medium">
+                  bot • 3PS · 4PS · 5PS Digital Library
+                </div>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <span id="langIndicator" class="px-2 py-0.5 rounded text-xs font-semibold bg-slate-700 text-slate-200">
+                🇬🇧 EN / 🇩🇿 AR
+              </span>
+            </div>
+          </div>
+
+          <!-- Chat Messages Viewport -->
+          <div id="chatViewport" class="flex-1 p-3.5 overflow-y-auto chat-scroll space-y-2.5 relative">
+            <!-- Populated dynamically by timeline engine -->
+          </div>
+
+          <!-- Composer / Input Row -->
+          <div class="px-3 py-2 bg-slate-800/90 border-t border-slate-700/70 flex items-center gap-2">
+            <button id="cmdMenuBtn" class="px-2 py-1 rounded bg-slate-700 text-slate-300 text-xs font-mono">
+              / Menu
+            </button>
+            <div id="composerInput" class="flex-1 px-3 py-1.5 rounded-full bg-slate-900/90 border border-slate-700 text-xs text-slate-300 truncate">
+              Write a message...
+            </div>
+            <button id="sendBtn" class="w-7 h-7 rounded-full bg-sky-500 flex items-center justify-center text-white text-xs font-bold shadow">
+              ➤
+            </button>
+          </div>
+
+          <!-- Persistent Reply Keyboard Drawer -->
+          <div id="replyKeyboard" class="p-2 bg-slate-900 border-t border-slate-800 grid grid-cols-2 gap-1.5 select-none">
+            <button id="rkBrowse" onclick="userManualAction('browse')" class="py-1.5 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-100 text-xs font-medium border border-slate-700/70 transition">
+              📚 Browse Resources
+            </button>
+            <button id="rkSearch" onclick="userManualAction('search')" class="py-1.5 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-100 text-xs font-medium border border-slate-700/70 transition">
+              🔍 Search Keyword
+            </button>
+            <button id="rkUpload" onclick="userManualAction('upload')" class="py-1.5 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-100 text-xs font-medium border border-slate-700/70 transition">
+              📤 Upload Resource
+            </button>
+            <button id="rkBag" onclick="userManualAction('bag')" class="py-1.5 px-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-100 text-xs font-medium border border-slate-700/70 transition">
+              ⭐ My Bag (1)
+            </button>
+          </div>
+
+          <!-- Toast Notification Overlay -->
+          <div id="tgToast" class="pointer-events-none opacity-0 transition-opacity duration-300 absolute top-14 left-1/2 -translate-x-1/2 px-3.5 py-1.5 rounded-full bg-emerald-600 text-white text-xs font-semibold shadow-lg border border-emerald-400/40 z-30 whitespace-nowrap">
+            ⭐ Saved to your Personal Bag!
+          </div>
+
+          <!-- Animated Pointer Cursor + Click Ripple -->
+          <div id="virtualCursor" class="pointer-events-none absolute z-40 cursor-transition" style="left: 50%; top: 50%;">
+            <div id="cursorRipple" class="w-8 h-8 -ml-3 -mt-3 rounded-full border-2 border-emerald-400 bg-emerald-400/25 absolute opacity-0"></div>
+            <!-- Crisp SVG Cursor -->
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" class="drop-shadow-[0_4px_8px_rgba(0,0,0,0.65)]">
+              <path d="M5.5 3.21V20.8c0 .45.54.67.85.35l4.86-4.86a.5.5 0 0 1 .35-.15h6.87c.45 0 .67-.53.35-.85L6.35 2.86a.5.5 0 0 0-.85.35Z" fill="#10b981" stroke="#ffffff" stroke-width="1.75"/>
+            </svg>
+            <span id="cursorLabel" class="ml-4 -mt-2 inline-block px-2 py-0.5 rounded bg-slate-950/90 text-emerald-300 border border-emerald-500/40 text-xs font-medium shadow whitespace-nowrap">
+              Teacher
+            </span>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- Bilingual Subtitle Ribbon (English + Arabic) -->
+    <div class="px-4 py-3 bg-slate-900 border-t border-slate-800 text-center space-y-1">
+      <p id="subEn" class="text-xs sm:text-sm font-medium text-white">
+        Sunday 9:30 PM: You need 3PS Sequence 1 Section 1 flashcards for tomorrow's lesson—but teacher groups are buried under 1,400+ unorganized messages.
+      </p>
+      <p id="subAr" dir="rtl" class="text-xs sm:text-sm font-medium text-amber-300">
+        الأحد 9:30 مساءً: تحتاج بطاقات (3PS - المقطع 1 - القسم 1) لحصة الغد، لكن المجموعات غارقة في آلاف الرسائل غير المنظمة والروابط التالفة.
+      </p>
+    </div>
+
+    <!-- Video Player Transport Bar & Controls -->
+    <div class="px-4 py-3 bg-[var(--content)] border-t border-[var(--border)] flex flex-col gap-2.5">
+      <!-- Scrubber Progress Bar -->
+      <div class="w-full h-2 bg-slate-700/50 rounded-full overflow-hidden cursor-pointer relative" id="progressTrack" onclick="scrubTimeline(event)">
+        <div id="progressBar" class="h-full bg-gradient-to-r from-emerald-500 via-teal-400 to-sky-500 transition-all duration-300" style="width: 4%;"></div>
+      </div>
+
+      <!-- Bottom Transport Buttons -->
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <div class="flex items-center gap-2">
+          <button id="playPauseBtn" onclick="togglePlay()" class="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow transition">
+            <span id="playIcon">⏸</span>
+            <span id="playLabel">Pause</span>
+          </button>
+          <button onclick="prevStep()" class="px-2.5 py-1.5 rounded-lg bg-[var(--card)] hover:opacity-80 text-[var(--foreground)] border border-[var(--border)] text-xs font-medium transition">
+            ⏮ Prev Beat
+          </button>
+          <button onclick="nextStep()" class="px-2.5 py-1.5 rounded-lg bg-[var(--card)] hover:opacity-80 text-[var(--foreground)] border border-[var(--border)] text-xs font-medium transition">
+            Next Beat ⏭
+          </button>
+          <button onclick="restartVideo()" class="px-2.5 py-1.5 rounded-lg bg-[var(--card)] hover:opacity-80 text-[var(--muted-foreground)] border border-[var(--border)] text-xs font-medium transition">
+            ↺ Replay
+          </button>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button id="voiceBtn" onclick="toggleVoice()" class="px-2.5 py-1.5 rounded-lg bg-[var(--card)] text-[var(--foreground)] border border-[var(--border)] text-xs font-medium transition flex items-center gap-1">
+            <span id="voiceIcon">🔇</span>
+            <span id="voiceLabel">Voiceover: Off</span>
+          </button>
+          <select id="speedSelect" onchange="changeSpeed(this.value)" class="px-2.5 py-1.5 rounded-lg bg-[var(--card)] text-[var(--foreground)] border border-[var(--border)] text-xs font-medium">
+            <option value="0.8">0.8x Relaxed</option>
+            <option value="1" selected>1.0x Normal</option>
+            <option value="1.5">1.5x Fast</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    // =========================================================================
+    // STORYBOARD BEATS (5 Problem-Solving Scenes, 16 Choreographed Beats)
+    // =========================================================================
+    const SCENES = [
+      {
+        id: 0,
+        badge: "⚠️ SCENE 1 OF 5 • THE PROBLEM",
+        badgeClass: "bg-rose-500/20 text-rose-300 border-rose-500/30",
+        title: "Lost Files in Messy Social Media Groups",
+        titleAr: "ضياع الملفات وسط فوضى المجموعات في فيسبوك وتيليغرام",
+        problem: "Teachers spend 45+ minutes every evening scrolling through thousands of unindexed messages, expired links, and mixed levels (3PS/4PS/5PS).",
+        solution: "Replace chaotic chat scroll with a structured, curriculum-aligned Telegram Bot (@PrimaryESL_DZ_Bot)."
+      },
+      {
+        id: 1,
+        badge: "✅ SCENE 2 OF 5 • SOLUTION #1: DIDACTIC TREE",
+        badgeClass: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+        title: "Guided Browse: Level → Sequence → Section → Session",
+        titleAr: "التصفح المنهجي: المستوى ← المقطع ← القسم ← الحصة",
+        problem: "Generic folders mix up sequences and sessions from the old and new Ministry didactic guides.",
+        solution: "5-tap drill-down built directly on the Official Algerian Primary ESL Didactic Guide."
+      },
+      {
+        id: 2,
+        badge: "⚡ SCENE 3 OF 5 • SOLUTION #2: SMART SEARCH",
+        badgeClass: "bg-sky-500/20 text-sky-300 border-sky-500/30",
+        title: "Instant Keyword & Bilingual Synonym Search",
+        titleAr: "البحث الفوري بالكلمات المفتاحية والمرادفات الذكية",
+        problem: "One teacher calls a file 'Exam', another writes 'Test', 'Assessment', or 'فرض'. Standard search misses 70% of files.",
+        solution: "Built-in synonym expansion matches English, Arabic & French curriculum terms automatically."
+      },
+      {
+        id: 3,
+        badge: "📤 SCENE 4 OF 5 • SOLUTION #3: UPLOAD & BADGES",
+        badgeClass: "bg-amber-500/20 text-amber-300 border-amber-500/30",
+        title: "Structured Community Sharing & Admin Moderation",
+        titleAr: "مشاركة منظمة للملفات مع توثيق المشرف وأوسمة التميز",
+        problem: "Valuable flashcards and PPTXs shared by creative teachers vanish within hours under new chat messages.",
+        solution: "8-step Upload Wizard archives files permanently in the cloud channel, notifies subscribed teachers, and awards 🥇/🥈/🥉 badges."
+      },
+      {
+        id: 4,
+        badge: "🏆 SCENE 5 OF 5 • IMPACT SUMMARY",
+        badgeClass: "bg-purple-500/20 text-purple-300 border-purple-500/30",
+        title: "From 45 Minutes of Chaos to 8 Seconds of Clarity",
+        titleAr: "من 45 دقيقة من البحث المرهق إلى 8 ثوانٍ من الوضوح التام",
+        problem: "Fragmented resources across dozens of groups.",
+        solution: "One unified, trilingual (EN/AR/FR), zero-cost digital library for Algerian Primary ESL teachers."
+      }
+    ];
+
+    const BEATS = [
+      // ---------------- SCENE 0: THE PROBLEM ----------------
+      {
+        scene: 0,
+        duration: 4200,
+        timeLabel: "00:00 / 00:46",
+        cursor: { x: 75, y: 42, click: false, label: "Frustrated Teacher" },
+        status: "Scrolling messy group...",
+        breadcrumbs: ["❌ Random Group Chat", "1,428 Unread Messages", "No Curriculum Filter"],
+        header: { title: "DZ Teachers Random Group", sub: "1,428 unread messages", avatar: "GRP" },
+        composer: "Where is 3PS Seq 1 Family flashcard?!",
+        subEn: "Sunday 9:30 PM: You need 3PS Sequence 1 Section 1 flashcards for tomorrow's class—but social groups are buried under 1,400+ unorganized messages.",
+        subAr: "الأحد 9:30 مساءً: تحتاج بطاقات (3PS - المقطع 1 - القسم 1) لحصة الغد، لكن المجموعات غارقة في آلاف الرسائل غير المنظمة.",
+        renderChat: () => `
+          <div class="p-2.5 rounded-xl bg-rose-950/50 border border-rose-500/30 text-xs text-rose-200 mb-2 msg-animate">
+            ⚠️ <strong>Before @PrimaryESL_DZ_Bot:</strong> Endless scrolling, broken links, and mixed levels.
+          </div>
+          <div class="max-w-[85%] rounded-2xl rounded-tl-sm bg-slate-800 p-2.5 text-xs text-slate-200 msg-animate">
+            <div class="font-bold text-amber-400 mb-0.5">Teacher A</div>
+            Please who has 3PS Family flashcards PDF?? Urgent for tomorrow 8:00 AM! 🙏
+          </div>
+          <div class="max-w-[85%] rounded-2xl rounded-tl-sm bg-slate-800 p-2.5 text-xs text-slate-200 msg-animate">
+            <div class="font-bold text-sky-400 mb-0.5">Teacher B</div>
+            Look in the pinned messages from October 2024... <span class="text-rose-400 underline">[Link Expired ❌]</span>
+          </div>
+          <div class="max-w-[85%] rounded-2xl rounded-tl-sm bg-slate-800 p-2.5 text-xs text-slate-200 msg-animate">
+            <div class="font-bold text-purple-400 mb-0.5">Teacher C</div>
+            Here is 5PS Jobs test.docx (Wait—wrong level! 😵)
+          </div>
+        `
+      },
+      {
+        scene: 0,
+        duration: 3400,
+        timeLabel: "00:05 / 00:46",
+        cursor: { x: 25, y: 92, click: true, label: "Tap 📚 Browse" },
+        highlightRk: "rkBrowse",
+        status: "Switching to @PrimaryESL_DZ_Bot",
+        breadcrumbs: ["🤖 @PrimaryESL_DZ_Bot", "Main Menu"],
+        header: { title: "Primary ESL DZ Bot", sub: "bot • 3PS · 4PS · 5PS Digital Library", avatar: "DZ" },
+        composer: "Write a message...",
+        subEn: "Now let's open @PrimaryESL_DZ_Bot and tap '📚 Browse Resources' on the persistent bottom menu.",
+        subAr: "الآن نفتح بوت @PrimaryESL_DZ_Bot ونضغط على زر «📚 Browse Resources» من القائمة السفلية الدائمة.",
+        renderChat: () => `
+          <div class="max-w-[92%] rounded-2xl rounded-tl-sm bg-slate-800 border border-emerald-500/30 p-3 text-xs text-slate-100 msg-animate">
+            <div class="font-bold text-emerald-400 mb-1">🇩🇿🇬🇧 Welcome to Primary ESL DZ Library!</div>
+            <p class="text-slate-300 leading-relaxed">
+              Organized by the Official Algerian Ministry Didactic Guide:<br/>
+              <span class="text-emerald-300 font-semibold">Level → Sequence → Section → Session → Category</span>
+            </p>
+          </div>
+        `
+      },
+
+      // ---------------- SCENE 1: GUIDED DIDACTIC TREE ----------------
+      {
+        scene: 1,
+        duration: 3000,
+        timeLabel: "00:08 / 00:46",
+        cursor: { x: 42, y: 42, click: true, label: "Select 📗 3PS" },
+        status: "Step 1/5: Selecting Level",
+        breadcrumbs: ["📗 3PS (3rd Year Primary)"],
+        header: { title: "Primary ESL DZ Bot", sub: "bot • Official Didactic Tree", avatar: "DZ" },
+        composer: "Write a message...",
+        subEn: "Step 1: Choose your Grade Level — 📗 3PS (3rd Year Primary).",
+        subAr: "الخطوة 1: اختر المستوى الدراسي — 📗 السنة الثالثة ابتدائي (3PS).",
+        renderChat: () => `
+          <div class="ml-auto max-w-[70%] rounded-2xl rounded-tr-sm bg-emerald-700/80 p-2 text-xs text-white mb-2">
+            📚 Browse Resources
+          </div>
+          <div class="max-w-[92%] rounded-2xl rounded-tl-sm bg-slate-800 p-3 text-xs text-slate-100 msg-animate">
+            <div class="font-semibold text-white mb-2">🎓 Step 1/5 — Select Grade Level:</div>
+            <div class="grid grid-cols-1 gap-1.5">
+              <div class="py-1.5 px-3 rounded-lg bg-emerald-600/30 border border-emerald-400 text-emerald-200 font-semibold flex justify-between">
+                <span>📗 3PS — 3rd Year Primary</span><span>✓</span>
+              </div>
+              <div class="py-1.5 px-3 rounded-lg bg-slate-700/70 text-slate-300">📘 4PS — 4th Year Primary</div>
+              <div class="py-1.5 px-3 rounded-lg bg-slate-700/70 text-slate-300">📙 5PS — 5th Year Primary</div>
+            </div>
+          </div>
+        `
+      },
+      {
+        scene: 1,
+        duration: 3000,
+        timeLabel: "00:11 / 00:46",
+        cursor: { x: 48, y: 40, click: true, label: "Select Seq 1" },
+        status: "Step 2/5: Selecting Sequence",
+        breadcrumbs: ["📗 3PS", "📂 Seq 1: Family & Friends"],
+        header: { title: "Primary ESL DZ Bot", sub: "bot • Official Didactic Tree", avatar: "DZ" },
+        composer: "Write a message...",
+        subEn: "Step 2: Pick the official Sequence — 📂 Sequence 1: Family & Friends.",
+        subAr: "الخطوة 2: اختر المقطع التعليمي الرسمي — 📂 Sequence 1: Family & Friends.",
+        renderChat: () => `
+          <div class="max-w-[94%] rounded-2xl rounded-tl-sm bg-slate-800 p-3 text-xs text-slate-100 msg-animate">
+            <div class="text-emerald-400 font-mono text-xs mb-1">📗 3PS</div>
+            <div class="font-semibold text-white mb-2">📂 Step 2/5 — Select Sequence:</div>
+            <div class="grid grid-cols-2 gap-1.5">
+              <div class="py-1.5 px-2.5 rounded-lg bg-emerald-600/30 border border-emerald-400 text-emerald-200 font-semibold">
+                📂 Seq 1: Family &amp; Friends
+              </div>
+              <div class="py-1.5 px-2.5 rounded-lg bg-slate-700/70 text-slate-300">📂 Seq 2: School</div>
+              <div class="py-1.5 px-2.5 rounded-lg bg-slate-700/70 text-slate-300">📂 Seq 3: Home</div>
+              <div class="py-1.5 px-2.5 rounded-lg bg-slate-700/70 text-slate-300">📂 Seq 4: Playtime</div>
+            </div>
+          </div>
+        `
+      },
+      {
+        scene: 1,
+        duration: 3000,
+        timeLabel: "00:14 / 00:46",
+        cursor: { x: 45, y: 44, click: true, label: "Select Sec 1: Family" },
+        status: "Step 3/5: Selecting Section",
+        breadcrumbs: ["📗 3PS", "📂 Seq 1", "📑 Sec 1: Family"],
+        header: { title: "Primary ESL DZ Bot", sub: "bot • Official Didactic Tree", avatar: "DZ" },
+        composer: "Write a message...",
+        subEn: "Step 3: Choose the Section inside Sequence 1 — 📑 Section 1: Family (or Section 2: Friends).",
+        subAr: "الخطوة 3: اختر القسم الفرعي داخل المقطع الأول — 📑 Section 1: Family.",
+        renderChat: () => `
+          <div class="max-w-[94%] rounded-2xl rounded-tl-sm bg-slate-800 p-3 text-xs text-slate-100 msg-animate">
+            <div class="text-emerald-400 font-mono text-xs mb-1">📗 3PS › 📂 Seq 1: Family &amp; Friends</div>
+            <div class="font-semibold text-white mb-2">📑 Step 3/5 — Select Section:</div>
+            <div class="grid grid-cols-1 gap-1.5">
+              <div class="py-2 px-3 rounded-lg bg-emerald-600/30 border border-emerald-400 text-emerald-200 font-semibold flex justify-between">
+                <span>📑 Sec 1: Family</span><span>✓</span>
+              </div>
+              <div class="py-2 px-3 rounded-lg bg-slate-700/70 text-slate-300">📑 Sec 2: Friends</div>
+              <div class="py-1.5 px-3 rounded-lg bg-slate-700/40 text-slate-400">📦 All Sequence 1 Resources</div>
+            </div>
+          </div>
+        `
+      },
+      {
+        scene: 1,
+        duration: 3200,
+        timeLabel: "00:17 / 00:46",
+        cursor: { x: 48, y: 41, click: true, label: "Select Session 1" },
+        status: "Step 4/5: Selecting Session",
+        breadcrumbs: ["📗 3PS", "📂 Seq 1", "📑 Sec 1: Family", "🎯 Session 1: I Sing & Listen"],
+        header: { title: "Primary ESL DZ Bot", sub: "bot • Official Didactic Tree", avatar: "DZ" },
+        composer: "Write a message...",
+        subEn: "Step 4: Select the exact Didactic Guide Session — 🎯 1. I Sing & Have Fun / I Listen & Repeat.",
+        subAr: "الخطوة 4: حدد الحصة البيداغوجية بدقة — 🎯 1. I Sing & Have Fun / I Listen & Repeat.",
+        renderChat: () => `
+          <div class="max-w-[94%] rounded-2xl rounded-tl-sm bg-slate-800 p-3 text-xs text-slate-100 msg-animate">
+            <div class="text-emerald-400 font-mono text-xs mb-1">📗 3PS › Seq 1 › Sec 1: Family</div>
+            <div class="font-semibold text-white mb-2">🎯 Step 4/5 — Select Session:</div>
+            <div class="grid grid-cols-1 gap-1.5">
+              <div class="py-1.5 px-2.5 rounded-lg bg-emerald-600/30 border border-emerald-400 text-emerald-200 font-semibold">
+                🎯 1. I Sing &amp; Have Fun / I Listen &amp; Repeat
+              </div>
+              <div class="py-1.5 px-2.5 rounded-lg bg-slate-700/70 text-slate-300">🎯 2. I Read &amp; Discover</div>
+              <div class="py-1.5 px-2.5 rounded-lg bg-slate-700/70 text-slate-300">🎯 3. I Read &amp; Enjoy</div>
+              <div class="py-1.5 px-2.5 rounded-lg bg-slate-700/70 text-slate-300">🎯 4. I Learn to Write</div>
+            </div>
+          </div>
+        `
+      },
+      {
+        scene: 1,
+        duration: 3800,
+        timeLabel: "00:20 / 00:46",
+        cursor: { x: 35, y: 66, click: true, label: "Download & Save ⭐" },
+        toast: "⭐ Saved to your Personal Bag (/favorites)!",
+        status: "✅ PDF Delivered + Bookmarked!",
+        breadcrumbs: ["📗 3PS", "📂 Seq 1", "📑 Sec 1", "🎯 Session 1", "🖼️ Flashcards"],
+        header: { title: "Primary ESL DZ Bot", sub: "bot • Sending file...", avatar: "DZ" },
+        composer: "Write a message...",
+        subEn: "Instant Payoff! Tap '📥 Get File' to receive the verified PDF and '⭐ Save to Bag' so it's always in your pocket.",
+        subAr: "النتيجة فورية! اضغط «📥 Get File» لتحميل الملف فوراً و«⭐ Save to Bag» لحفظه في حقيبتك الخاصة.",
+        renderChat: () => `
+          <div class="max-w-[95%] rounded-2xl rounded-tl-sm bg-slate-800 border border-emerald-500/40 p-3 text-xs text-slate-100 msg-animate">
+            <div class="flex items-center justify-between mb-1">
+              <span class="font-bold text-emerald-300">📄 3PS Family Flashcards (High-Res Print)</span>
+              <span class="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-xs">PDF • 2.4 MB</span>
+            </div>
+            <div class="text-slate-400 text-xs mb-2">
+              📗 3PS › Seq 1 › Sec 1: Family › Session 1 • Shared by Prof. Amine 🥇
+            </div>
+            <div class="grid grid-cols-3 gap-1.5">
+              <div class="py-1.5 px-2 rounded bg-emerald-600 text-white font-semibold text-center shadow">📥 Get File</div>
+              <div class="py-1.5 px-2 rounded bg-amber-500/30 border border-amber-400 text-amber-200 font-semibold text-center">⭐ Saved</div>
+              <div class="py-1.5 px-2 rounded bg-slate-700 text-slate-200 text-center">❤️ 48</div>
+            </div>
+          </div>
+          <div class="max-w-[85%] rounded-2xl rounded-tl-sm bg-emerald-950/70 border border-emerald-500/40 p-2.5 text-xs text-emerald-200 msg-animate flex items-center gap-2">
+            <span class="text-lg">📎</span>
+            <div>
+              <div class="font-bold text-white">3PS_Seq1_Sec1_Family_Flashcards.pdf</div>
+              <div class="text-xs text-emerald-400">Delivered in 0.4s • Ready to print!</div>
+            </div>
+          </div>
+        `
+      },
+
+      // ---------------- SCENE 2: SMART KEYWORD & SYNONYM SEARCH ----------------
+      {
+        scene: 2,
+        duration: 3400,
+        timeLabel: "00:24 / 00:46",
+        cursor: { x: 52, y: 80, click: true, label: "Type '5ps jobs exam'" },
+        highlightRk: "rkSearch",
+        status: "Typing search query...",
+        breadcrumbs: ["🔍 Smart Search", "Query: '5ps jobs exam'"],
+        header: { title: "Primary ESL DZ Bot", sub: "bot • Smart Synonym Engine", avatar: "DZ" },
+        composer: "5ps jobs exam|",
+        subEn: "Short on time? Tap '🔍 Search Keyword' and type '5ps jobs exam' (or Arabic 'فرض خامسة المهن').",
+        subAr: "ضيق الوقت؟ اضغط «🔍 Search Keyword» واكتب «5ps jobs exam» أو بالعربية «فرض خامسة المهن».",
+        renderChat: () => `
+          <div class="ml-auto max-w-[70%] rounded-2xl rounded-tr-sm bg-emerald-700/80 p-2 text-xs text-white mb-2">
+            🔍 Search Keyword
+          </div>
+          <div class="max-w-[90%] rounded-2xl rounded-tl-sm bg-slate-800 p-3 text-xs text-slate-200 msg-animate">
+            🔎 <strong>Send me any keyword(s)</strong> — level, sequence, topic, or Arabic/French term.<br/>
+            <span class="text-slate-400">Example: <code>3ps family flashcards</code> or <code>5ps jobs exam</code></span>
+          </div>
+        `
+      },
+      {
+        scene: 2,
+        duration: 3800,
+        timeLabel: "00:28 / 00:46",
+        cursor: { x: 68, y: 58, click: true, label: "Tap ❤️ Thank Teacher" },
+        toast: "❤️ You thanked Prof. Meriem for this resource!",
+        status: "Synonym Match: exam → Tests & Assessments",
+        breadcrumbs: ["📙 5PS", "📂 Seq 2: Jobs", "📝 Tests & Assessments"],
+        header: { title: "Primary ESL DZ Bot", sub: "bot • 3 matches found in 0.12s", avatar: "DZ" },
+        composer: "Write a message...",
+        subEn: "The bot expands 'exam' → 'test / assessment / فرض' automatically, ranks the best 5PS Sequence 2 files, and lets you thank the author with ❤️!",
+        subAr: "يطابق البوت تلقائياً المرادفات (exam = test = فرض) ويعرض أفضل الفروض للسنة الخامسة مع إمكانية شكر الأستاذ بـ ❤️!",
+        renderChat: () => `
+          <div class="ml-auto max-w-[65%] rounded-2xl rounded-tr-sm bg-sky-600 p-2 text-xs text-white mb-1">
+            5ps jobs exam
+          </div>
+          <div class="max-w-[96%] rounded-2xl rounded-tl-sm bg-slate-800 border border-sky-500/40 p-3 text-xs text-slate-100 msg-animate">
+            <div class="text-sky-400 font-semibold mb-1">✨ Smart Synonym Match: <code>exam ↔ test / assessment / فرض</code></div>
+            <div class="p-2 rounded-lg bg-slate-900/90 border border-slate-700 mb-2">
+              <div class="font-bold text-white">1. 5PS Seq 2 Reading Comprehension &amp; Written Test (Jobs)</div>
+              <div class="text-slate-400 text-xs">📙 5PS › Seq 2: Jobs › Sec 1 › Session 5 • DOCX • 📥 112</div>
+            </div>
+            <div class="grid grid-cols-3 gap-1.5">
+              <div class="py-1 px-2 rounded bg-sky-600 text-white font-semibold text-center">📥 Get DOCX</div>
+              <div class="py-1 px-2 rounded bg-slate-700 text-slate-200 text-center">⭐ Save</div>
+              <div class="py-1 px-2 rounded bg-rose-500/30 border border-rose-400 text-rose-200 font-semibold text-center">❤️ 25</div>
+            </div>
+          </div>
+        `
+      },
+
+      // ---------------- SCENE 3: UPLOAD & BADGES ----------------
+      {
+        scene: 3,
+        duration: 3600,
+        timeLabel: "00:32 / 00:46",
+        cursor: { x: 25, y: 97, click: true, label: "Tap 📤 Upload Resource" },
+        highlightRk: "rkUpload",
+        status: "Starting 8-Step Upload Wizard",
+        breadcrumbs: ["📤 Upload Wizard", "📘 4PS", "📂 Seq 3: School", "🎲 Games"],
+        header: { title: "Primary ESL DZ Bot", sub: "bot • Community Upload Wizard", avatar: "DZ" },
+        composer: "Write a message...",
+        subEn: "Want to preserve your own work? Tap '📤 Upload Resource', drop your file, and tag it along the official tree.",
+        subAr: "تريد حفظ أعمالك من الضياع؟ اضغط «📤 Upload Resource» وأرسل ملفك ليتم تصنيفه بدقة في المكتبة.",
+        renderChat: () => `
+          <div class="ml-auto max-w-[82%] rounded-2xl rounded-tr-sm bg-emerald-700/80 p-2.5 text-xs text-white mb-1.5 msg-animate">
+            📎 <strong>4PS_Seq3_School_SpinningWheel_Game.pptx</strong> (4.1 MB)
+          </div>
+          <div class="max-w-[94%] rounded-2xl rounded-tl-sm bg-slate-800 p-3 text-xs text-slate-100 msg-animate">
+            <div class="font-bold text-amber-300 mb-1">📤 Upload Summary — Ready to Submit:</div>
+            <ul class="space-y-0.5 text-slate-300 text-xs mb-2">
+              <li>• <strong>Title:</strong> School Objects Spinning Wheel Game</li>
+              <li>• <strong>Path:</strong> 📘 4PS › Seq 3: School › Sec 1 › Session 1</li>
+              <li>• <strong>Category:</strong> 🎲 Games &amp; Activities (PPTX)</li>
+            </ul>
+            <div class="py-1.5 px-3 rounded-lg bg-emerald-600 text-white font-bold text-center">
+              ✅ Confirm &amp; Send for Admin Approval
+            </div>
+          </div>
+        `
+      },
+      {
+        scene: 3,
+        duration: 3800,
+        timeLabel: "00:37 / 00:46",
+        cursor: { x: 50, y: 55, click: false, label: "Approved + Badge Earned!" },
+        toast: "🥇 Congratulations! Your upload is live & you earned the Gold Badge!",
+        status: "✅ Approved & Archived to Cloud!",
+        breadcrumbs: ["✅ Approved by Admin", "🔔 4PS Subscribers Notified", "🥇 Gold Contributor"],
+        header: { title: "Primary ESL DZ Bot", sub: "bot • Cloud Archive & Badges", avatar: "DZ" },
+        composer: "Write a message...",
+        subEn: "Once approved by the Admin, your file is backed up forever, 4PS teachers get an instant alert, and you climb the 🏆 Leaderboard!",
+        subAr: "بمجرد موافقة المشرف، يُحفظ ملفك للأبد ويصل إشعار فوري لأساتذة 4PS وتحصل على وسام التميز 🥇!",
+        renderChat: () => `
+          <div class="max-w-[95%] rounded-2xl rounded-tl-sm bg-emerald-950/80 border border-emerald-400/50 p-3 text-xs text-emerald-100 msg-animate">
+            <div class="font-bold text-emerald-300 text-sm mb-1">🎉 Your Resource Has Been Approved!</div>
+            <p class="text-slate-200 mb-2">
+              <strong>School Objects Spinning Wheel Game</strong> is now live in <code>📘 4PS › Seq 3 › Sec 1</code>.
+            </p>
+            <div class="p-2 rounded-lg bg-slate-900/90 border border-amber-400/40 flex items-center justify-between">
+              <div>
+                <div class="text-amber-300 font-bold">🥇 Gold Contributor Rank Unlocked!</div>
+                <div class="text-slate-400 text-xs">12 Approved Uploads • 340 Teacher Downloads</div>
+              </div>
+              <span class="text-2xl">🏆</span>
+            </div>
+          </div>
+        `
+      },
+
+      // ---------------- SCENE 4: RESULTS & SANDBOX ----------------
+      {
+        scene: 4,
+        duration: 5000,
+        timeLabel: "00:42 / 00:46",
+        cursor: { x: 82, y: 20, click: false, label: "Ready to Use!" },
+        status: "🎉 Problem Solved! Try the buttons below.",
+        breadcrumbs: ["📗 3PS", "📘 4PS", "📙 5PS", "🇬🇧 EN / 🇩🇿 AR / 🇫🇷 FR"],
+        header: { title: "Primary ESL DZ Bot", sub: "bot • Live on Telegram 24/7", avatar: "DZ" },
+        composer: "Try clicking any bottom menu button below! 👇",
+        subEn: "Result: 45 minutes of frustrating scrolling becomes 8 seconds of structured discovery. Try clicking the bot buttons below or open @PrimaryESL_DZ_Bot!",
+        subAr: "النتيجة: من 45 دقيقة من البحث المرهق إلى 8 ثوانٍ فقط! جرّب الضغط على أزرار البوت بالأسفل أو افتحه مباشرة على تيليغرام.",
+        renderChat: () => `
+          <div class="rounded-2xl bg-gradient-to-br from-emerald-950/90 via-slate-900 to-slate-900 border border-emerald-500/40 p-3.5 text-xs text-slate-100 msg-animate space-y-2.5">
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-emerald-400 text-sm">🇩🇿 @PrimaryESL_DZ_Bot — Impact Summary</span>
+              <span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-semibold">100% Free</span>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div class="p-2 rounded-lg bg-rose-950/40 border border-rose-500/30">
+                <div class="text-rose-300 font-bold">❌ Before (Social Groups)</div>
+                <div class="text-slate-400 text-xs mt-0.5">• 45 min wasted scrolling<br/>• Broken links &amp; duplicates<br/>• Mixed 3PS/4PS/5PS files</div>
+              </div>
+              <div class="p-2 rounded-lg bg-emerald-950/50 border border-emerald-500/40">
+                <div class="text-emerald-300 font-bold">✅ With @PrimaryESL_DZ_Bot</div>
+                <div class="text-slate-300 text-xs mt-0.5">• 8 sec via Didactic Tree<br/>• Smart EN/AR/FR Synonyms<br/>• Personal Bag &amp; Cloud Backup</div>
+              </div>
+            </div>
+            <div class="text-center pt-1 text-emerald-300 font-medium">
+              👆 Click any chapter above to replay, or click the bot menu buttons below!
+            </div>
+          </div>
+        `
+      }
+    ];
+
+    // =========================================================================
+    // PLAYER STATE & TIMELINE ENGINE
+    // =========================================================================
+    let currentBeatIndex = 0;
+    let isPlaying = true;
+    let playbackSpeed = 1.0;
+    let voiceEnabled = false;
+    let beatTimer = null;
+    let toastTimer = null;
+
+    function renderBeat(index) {
+      currentBeatIndex = (index + BEATS.length) % BEATS.length;
+      const beat = BEATS[currentBeatIndex];
+      const scene = SCENES[beat.scene];
+
+      // 1. Update Top Chapter Pills
+      document.querySelectorAll("[data-scene-btn]").forEach((btn) => {
+        const sId = parseInt(btn.getAttribute("data-scene-btn"), 10);
+        if (sId === beat.scene) {
+          btn.className = "px-2.5 py-1 rounded-lg text-xs font-semibold transition bg-emerald-600 text-white border border-emerald-500 shadow-sm";
+        } else {
+          btn.className = "px-2.5 py-1 rounded-lg text-xs font-medium transition bg-[var(--card)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] border border-[var(--border)]";
+        }
+      });
+
+      // 2. Update Left Narrative Inspector
+      const sceneBadge = document.getElementById("sceneBadge");
+      sceneBadge.textContent = scene.badge;
+      sceneBadge.className = `inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${scene.badgeClass}`;
+      document.getElementById("sceneTimerBadge").textContent = beat.timeLabel;
+      document.getElementById("sceneTitle").textContent = scene.title;
+      document.getElementById("sceneTitleAr").textContent = scene.titleAr;
+
+      document.getElementById("sceneExplainCard").innerHTML = `
+        <div class="flex items-start gap-2">
+          <span class="px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 text-xs font-semibold shrink-0">Problem</span>
+          <p class="text-xs text-slate-300 leading-relaxed">${scene.problem}</p>
+        </div>
+        <div class="border-t border-slate-800 pt-2 flex items-start gap-2">
+          <span class="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-xs font-semibold shrink-0">Solution</span>
+          <p class="text-xs text-emerald-200 leading-relaxed">${scene.solution}</p>
+        </div>
+      `;
+
+      // 3. Update Breadcrumb Trail & Status
+      document.getElementById("activeActionStatus").textContent = beat.status;
+      document.getElementById("breadcrumbTrail").innerHTML = beat.breadcrumbs
+        .map((b, i) => `
+          <span class="px-2 py-0.5 rounded ${i === beat.breadcrumbs.length - 1 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold' : 'bg-slate-800 text-slate-300'}">${b}</span>
+          ${i < beat.breadcrumbs.length - 1 ? '<span class="text-slate-600">›</span>' : ''}
+        `)
+        .join("");
+
+      // 4. Update Telegram Header & Composer
+      document.getElementById("headerTitle").textContent = beat.header.title;
+      document.getElementById("headerSubtitle").textContent = beat.header.sub;
+      document.getElementById("headerAvatar").textContent = beat.header.avatar;
+      document.getElementById("composerInput").textContent = beat.composer;
+
+      // 5. Highlight Reply Keyboard button if targeted
+      ["rkBrowse", "rkSearch", "rkUpload", "rkBag"].forEach((id) => {
+        const el = document.getElementById(id);
+        if (beat.highlightRk === id) {
+          el.classList.add("btn-highlight");
+        } else {
+          el.classList.remove("btn-highlight");
+        }
+      });
+
+      // 6. Render Chat Viewport
+      const chatViewport = document.getElementById("chatViewport");
+      chatViewport.innerHTML = beat.renderChat();
+      chatViewport.scrollTop = chatViewport.scrollHeight;
+
+      // 7. Move Animated Cursor & Trigger Click Ripple
+      const cursor = document.getElementById("virtualCursor");
+      const ripple = document.getElementById("cursorRipple");
+      const cursorLabel = document.getElementById("cursorLabel");
+      cursor.style.left = `${beat.cursor.x}%`;
+      cursor.style.top = `${beat.cursor.y}%`;
+      cursorLabel.textContent = beat.cursor.label;
+
+      ripple.classList.remove("click-ripple");
+      if (beat.cursor.click) {
+        setTimeout(() => {
+          ripple.classList.add("click-ripple");
+        }, 420);
+      }
+
+      // 8. Show Toast if present
+      const toastEl = document.getElementById("tgToast");
+      clearTimeout(toastTimer);
+      if (beat.toast) {
+        toastEl.textContent = beat.toast;
+        toastEl.style.opacity = "1";
+        toastTimer = setTimeout(() => {
+          toastEl.style.opacity = "0";
+        }, 2400);
+      } else {
+        toastEl.style.opacity = "0";
+      }
+
+      // 9. Update Bilingual Subtitles
+      document.getElementById("subEn").textContent = beat.subEn;
+      document.getElementById("subAr").textContent = beat.subAr;
+
+      // 10. Update Scrubber Progress Bar
+      const pct = Math.round(((currentBeatIndex + 1) / BEATS.length) * 100);
+      document.getElementById("progressBar").style.width = `${pct}%`;
+
+      // 11. Speak Subtitle if Voiceover is enabled
+      if (voiceEnabled && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+        const utter = new SpeechSynthesisUtterance(beat.subEn);
+        utter.rate = Math.min(1.35, Math.max(0.85, playbackSpeed));
+        window.speechSynthesis.speak(utter);
+      }
+
+      // 12. Schedule Next Beat if Playing
+      clearTimeout(beatTimer);
+      if (isPlaying) {
+        const delay = Math.round(beat.duration / playbackSpeed);
+        beatTimer = setTimeout(() => {
+          renderBeat((currentBeatIndex + 1) % BEATS.length);
+        }, delay);
+      }
+    }
+
+    function togglePlay() {
+      isPlaying = !isPlaying;
+      document.getElementById("playIcon").textContent = isPlaying ? "⏸" : "▶️";
+      document.getElementById("playLabel").textContent = isPlaying ? "Pause" : "Play";
+      if (isPlaying) {
+        renderBeat(currentBeatIndex);
+      } else {
+        clearTimeout(beatTimer);
+        if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+      }
+    }
+
+    function nextStep() {
+      clearTimeout(beatTimer);
+      renderBeat((currentBeatIndex + 1) % BEATS.length);
+    }
+
+    function prevStep() {
+      clearTimeout(beatTimer);
+      renderBeat((currentBeatIndex - 1 + BEATS.length) % BEATS.length);
+    }
+
+    function restartVideo() {
+      isPlaying = true;
+      document.getElementById("playIcon").textContent = "⏸";
+      document.getElementById("playLabel").textContent = "Pause";
+      renderBeat(0);
+    }
+
+    function jumpToScene(sceneId) {
+      const targetIndex = BEATS.findIndex((b) => b.scene === sceneId);
+      if (targetIndex !== -1) {
+        renderBeat(targetIndex);
+      }
+    }
+
+    function changeSpeed(val) {
+      playbackSpeed = parseFloat(val) || 1.0;
+      if (isPlaying) {
+        renderBeat(currentBeatIndex);
+      }
+    }
+
+    function toggleVoice() {
+      voiceEnabled = !voiceEnabled;
+      document.getElementById("voiceIcon").textContent = voiceEnabled ? "🔊" : "🔇";
+      document.getElementById("voiceLabel").textContent = voiceEnabled ? "Voiceover: On" : "Voiceover: Off";
+      if (!voiceEnabled && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      } else if (voiceEnabled) {
+        renderBeat(currentBeatIndex);
+      }
+    }
+
+    function scrubTimeline(e) {
+      const track = document.getElementById("progressTrack");
+      const rect = track.getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const targetBeat = Math.min(BEATS.length - 1, Math.floor(ratio * BEATS.length));
+      renderBeat(targetBeat);
+    }
+
+    // Allow viewer to click the persistent reply keyboard buttons directly!
+    function userManualAction(action) {
+      if (action === "browse") jumpToScene(1);
+      else if (action === "search") jumpToScene(2);
+      else if (action === "upload") jumpToScene(3);
+      else if (action === "bag") {
+        renderBeat(6); // The saved-to-bag payoff beat
+      }
+    }
+
+    // Initialize on load
+    window.addEventListener("DOMContentLoaded", () => {
+      renderBeat(0);
+    });
+  </script>
+</body>
+</html>

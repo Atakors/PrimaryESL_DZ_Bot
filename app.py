@@ -36,7 +36,7 @@ from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Tuple
 
 import telebot
-from flask import Flask, abort, jsonify, request
+from flask import Flask, Response, abort, jsonify, request
 from telebot import types, util
 from telebot.apihelper import ApiTelegramException
 
@@ -2639,7 +2639,17 @@ def index():
         last_update_error=_last_update_info.get("error"),
         uptime_seconds=int(time.time() - START_TIME),
         resources=db.count_resources("approved"),
+        tutorial_url=f"{WEBHOOK_URL}/tutorial" if WEBHOOK_URL else "/tutorial",
     )
+
+
+@app.route("/tutorial", methods=["GET"])
+def tutorial_page():
+    tutorial_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tutorial.html")
+    if not os.path.isfile(tutorial_path):
+        abort(404)
+    with open(tutorial_path, "r", encoding="utf-8") as fh:
+        return Response(fh.read(), mimetype="text/html; charset=utf-8")
 
 
 @app.route("/health", methods=["GET", "HEAD"])
