@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: primary-esl-dz-bot
+    runtime: python
+    plan: free
+    region: frankfurt
+    buildCommand: pip install --no-cache-dir -r requirements.txt
+    # Keep --workers 1 so the in-memory upload wizard sessions, search cache,
+    # and SQLite file all live in a single process.
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: BOT_TOKEN
+        sync: false
+      - key: ADMIN_ID
+        sync: false
+      - key: ARCHIVE_CHANNEL_ID
+        sync: false
+      - key: WEBHOOK_URL
+        sync: false
+      - key: PORT
+        value: "10000"
+      - key: BACKUP_INTERVAL_MINUTES
+        value: "360"
