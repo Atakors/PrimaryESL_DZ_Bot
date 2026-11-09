@@ -2121,8 +2121,53 @@ def cb_upload(call: types.CallbackQuery) -> None:
         safe_answer(call)
 
 
+# ---- admin users directory, stats & CSV export callbacks --------------------
+@bot.callback_query_handler(func=lambda c: (c.data or "").startswith("adm_users:"))
+def cb_admin_users_page(call: types.CallbackQuery) -> None:
+    if not is_admin(call.from_user.id):
+        safe_answer(call, "⛔ Admin only.", alert=True)
+        return
+    if not call.message:
+        safe_answer(call)
+        return
+    try:
+        page = max(0, int(call.data.split(":")[1]))
+    except (ValueError, IndexError):
+        safe_answer(call, "Invalid page.", alert=True)
+        return
+    text, kb = users_directory_view(page)
+    safe_edit_text(call_chat_id(call), call.message.message_id, text, kb)
+    safe_answer(call)
+
+
+@bot.callback_query_handler(func=lambda c: (c.data or "") == "adm_stats")
+def cb_admin_stats(call: types.CallbackQuery) -> None:
+    if not is_admin(call.from_user.id):
+        safe_answer(call, "⛔ Admin only.", alert=True)
+        return
+    if call.message:
+        safe_edit_text(call_chat_id(call), call.message.message_id, stats_text(), kb_admin_stats())
+    safe_answer(call)
+
+
+@bot.callback_query_handler(func=lambda c: (c.data or "") == "adm_ucsv")
+def cb_admin_users_csv(call: types.CallbackQuery) -> None:
+    if not is_admin(call.from_user.id):
+        safe_answer(call, "⛔ Admin only.", alert=True)
+        return
+    safe_answer(call, "📥 Exporting users CSV…")
+    try:
+        send_users_csv(call_chat_id(call))
+    except Exception as exc:  # noqa: BLE001
+        log.exception("Failed exporting users CSV")
+        bot.send_message(call_chat_id(call), f"⚠️ Could not export CSV: {h(exc)}")
+
+
 # ---- admin approval & in-place edit callbacks -------------------------------
-@bot.callback_query_handler(func=lambda c: (c.data or "").startswith("adm_"))
+@bot.callback_query_handler(
+    func=lambda c: (c.data or "").startswith("adm_")
+    and not (c.data or "").startswith(("adm_users:", "adm_stats", "adm_ucsv"))
+)
 def cb_admin_decision(call: types.CallbackQuery) -> None:
     if not is_admin(call.from_user.id):
         safe_answer(call, "⛔ Only the administrator can do this.", alert=True)
@@ -2730,47 +2775,6 @@ def cb_my_uploads_page(call: types.CallbackQuery) -> None:
     text, kb = my_uploads_view(call.from_user.id, page)
     safe_edit_text(call_chat_id(call), call.message.message_id, text, kb)
     safe_answer(call)
-
-
-@bot.callback_query_handler(func=lambda c: (c.data or "").startswith("adm_users:"))
-def cb_admin_users_page(call: types.CallbackQuery) -> None:
-    if not is_admin(call.from_user.id):
-        safe_answer(call, "⛔ Admin only.", alert=True)
-        return
-    if not call.message:
-        safe_answer(call)
-        return
-    try:
-        page = max(0, int(call.data.split(":")[1]))
-    except (ValueError, IndexError):
-        safe_answer(call, "Invalid page.", alert=True)
-        return
-    text, kb = users_directory_view(page)
-    safe_edit_text(call_chat_id(call), call.message.message_id, text, kb)
-    safe_answer(call)
-
-
-@bot.callback_query_handler(func=lambda c: (c.data or "") == "adm_stats")
-def cb_admin_stats(call: types.CallbackQuery) -> None:
-    if not is_admin(call.from_user.id):
-        safe_answer(call, "⛔ Admin only.", alert=True)
-        return
-    if call.message:
-        safe_edit_text(call_chat_id(call), call.message.message_id, stats_text(), kb_admin_stats())
-    safe_answer(call)
-
-
-@bot.callback_query_handler(func=lambda c: (c.data or "") == "adm_ucsv")
-def cb_admin_users_csv(call: types.CallbackQuery) -> None:
-    if not is_admin(call.from_user.id):
-        safe_answer(call, "⛔ Admin only.", alert=True)
-        return
-    safe_answer(call, "📥 Exporting users CSV…")
-    try:
-        send_users_csv(call_chat_id(call))
-    except Exception as exc:  # noqa: BLE001
-        log.exception("Failed exporting users CSV")
-        bot.send_message(call_chat_id(call), f"⚠️ Could not export CSV: {h(exc)}")
 
 
 @bot.callback_query_handler(func=lambda c: True)
