@@ -399,6 +399,110 @@ class Database:
             rows = conn.execute("SELECT user_id FROM users ORDER BY user_id").fetchall()
         return [int(r["user_id"]) for r in rows]
 
+    def list_users_with_stats(
+        self, limit: int = 10, offset: int = 0
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """
+        Return paginated user records enriched with upload, download, favorite,
+        and like activity counts, ordered by most recently active (`last_seen DESC`).
+        """
+        sql = (
+            "SELECT u.*, "
+            "  IFNULL(r_stat.approved_uploads, 0) AS approved_uploads, "
+            "  IFNULL(r_stat.pending_uploads, 0) AS pending_uploads, "
+            "  IFNULL(r_stat.total_downloads, 0) AS total_downloads, "
+            "  IFNULL(r_stat.total_likes_received, 0) AS total_likes_received, "
+            "  IFNULL(f_stat.saved_count, 0) AS saved_count, "
+            "  IFNULL(l_stat.likes_given, 0) AS likes_given "
+            "FROM users u "
+            "LEFT JOIN ( "
+            "  SELECT uploader_id, "
+            "    SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) AS approved_uploads, "
+            "    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending_uploads, "
+            "    SUM(CASE WHEN status = 'approved' THEN downloads ELSE 0 END) AS total_downloads, "
+            "    SUM(CASE WHEN status = 'approved' THEN IFNULL(likes, 0) ELSE 0 END) AS total_likes_received "
+            "  FROM resources GROUP BY uploader_id "
+            ") r_stat ON r_stat.uploader_id = u.user_id "
+            "LEFT JOIN ( "
+            "  SELECT user_id, COUNT(*) AS saved_count FROM favorites GROUP BY user_id "
+            ") f_stat ON f_stat.user_id = u.user_id "
+            "LEFT JOIN ( "
+            "  SELECT user_id, COUNT(*) AS likes_given FROM likes GROUP BY user_id "
+            ") l_stat ON l_stat.user_id = u.user_id "
+            "ORDER BY u.last_seen DESC, u.user_id DESC "
+            "LIMIT ? OFFSET ?"
+        )
+        with self._connect() as conn:
+            total = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+            rows = conn.execute(sql, (limit, offset)).fetchall()
+        return self._rows(rows), int(total)
+
+    def all_users_with_stats(self) -> List[Dict[str, Any]]:
+        """Return all users with their activity statistics (for Admin CSV export)."""
+        rows, _ = self.list_users_with_stats(limit=100000, offset=0)
+        return rows
+
+    def find_user_profile(self, query: str) -> Optional[Dict[str, Any]]:
+        """
+        Look up a single user by numeric `user_id`, `@username`, or name substring,
+        and return their profile with detailed activity counts.
+        """
+        q = (query or "").strip()
+        if not q:
+            return None
+        uname = q.lstrip("@").lower()
+        with self._connect() as conn:
+            row = None
+            if q.isdigit():
+                row = conn.execute(
+                    "SELECT * FROM users WHERE user_id = ?", (int(q),)
+                ).fetchone()
+            if row is None:
+                row = conn.execute(
+                    "SELECT * FROM users WHERE LOWER(IFNULL(username, '')) = ? "
+                    "ORDER BY last_seen DESC LIMIT 1",
+                    (uname,),
+                ).fetchone()
+            if row is None:
+                like_pat = f"%{escape_like(q.lower())}%"
+                row = conn.execute(
+                    f"SELECT * FROM users "
+                    f"WHERE LOWER(IFNULL(full_name, '')) LIKE ? {LIKE_ESCAPE} "
+                    f"   OR LOWER(IFNULL(username, '')) LIKE ? {LIKE_ESCAPE} "
+                    f"ORDER BY last_seen DESC LIMIT 1",
+                    (like_pat, like_pat),
+                ).fetchone()
+            if row is None:
+                return None
+
+            profile = dict(row)
+            uid = int(profile["user_id"])
+            up_row = conn.execute(
+                "SELECT "
+                "  SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) AS approved_uploads, "
+                "  SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending_uploads, "
+                "  SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) AS rejected_uploads, "
+                "  SUM(CASE WHEN status = 'approved' THEN downloads ELSE 0 END) AS total_downloads, "
+                "  SUM(CASE WHEN status = 'approved' THEN IFNULL(likes, 0) ELSE 0 END) AS total_likes_received "
+                "FROM resources WHERE uploader_id = ?",
+                (uid,),
+            ).fetchone()
+            profile["approved_uploads"] = int(up_row["approved_uploads"] or 0)
+            profile["pending_uploads"] = int(up_row["pending_uploads"] or 0)
+            profile["rejected_uploads"] = int(up_row["rejected_uploads"] or 0)
+            profile["total_downloads"] = int(up_row["total_downloads"] or 0)
+            profile["total_likes_received"] = int(up_row["total_likes_received"] or 0)
+            profile["saved_count"] = int(
+                conn.execute("SELECT COUNT(*) FROM favorites WHERE user_id = ?", (uid,)).fetchone()[0]
+            )
+            profile["likes_given"] = int(
+                conn.execute("SELECT COUNT(*) FROM likes WHERE user_id = ?", (uid,)).fetchone()[0]
+            )
+            profile["reports_filed"] = int(
+                conn.execute("SELECT COUNT(*) FROM reports WHERE user_id = ?", (uid,)).fetchone()[0]
+            )
+            return profile
+
     # ------------------------------------------------------------- resources
     def add_resource(
         self,
@@ -918,6 +1022,19 @@ class Database:
                 )
             }
             users = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+            active_24h = conn.execute(
+                "SELECT COUNT(*) FROM users WHERE last_seen >= datetime('now', '-1 day')"
+            ).fetchone()[0]
+            active_7d = conn.execute(
+                "SELECT COUNT(*) FROM users WHERE last_seen >= datetime('now', '-7 days')"
+            ).fetchone()[0]
+            by_lang = {
+                (row["lang"] or "en"): row["n"]
+                for row in conn.execute("SELECT lang, COUNT(*) AS n FROM users GROUP BY lang")
+            }
+            subscribers_count = conn.execute(
+                "SELECT COUNT(*) FROM users WHERE notify_levels != '' AND notify_levels IS NOT NULL"
+            ).fetchone()[0]
             contributors = conn.execute(
                 "SELECT COUNT(DISTINCT uploader_id) FROM resources WHERE status = 'approved'"
             ).fetchone()[0]
@@ -932,6 +1049,10 @@ class Database:
             "downloads": int(total_downloads),
             "by_level": by_level,
             "users": users,
+            "active_24h": int(active_24h),
+            "active_7d": int(active_7d),
+            "by_lang": by_lang,
+            "subscribers_count": int(subscribers_count),
             "contributors": contributors,
             "last_backup_at": last_backup["value"] if last_backup else None,
         }

@@ -22,8 +22,10 @@ Run on Render: gunicorn app:app ...     (webhook mode, see render.yaml)
 """
 
 import atexit
+import csv
 import hashlib
 import html
+import io
 import logging
 import math
 import os
@@ -1243,14 +1245,24 @@ def start_bulk_upload(message: types.Message) -> None:
 def stats_text() -> str:
     s = db.stats()
     by_level = " • ".join(f"{lv}: {s['by_level'].get(lv, 0)}" for lv in cur.get_level_keys())
+    by_lang_map = s.get("by_lang") or {}
+    lang_summary = " • ".join(
+        f"{flag}: {by_lang_map.get(code, 0)}"
+        for code, flag in (("en", "🇬🇧 EN"), ("ar", "🇩🇿 AR"), ("fr", "🇫🇷 FR"))
+    )
     lines = [
-        "📊 <b>Library statistics</b>\n",
-        f"📚 Published: <b>{s['approved']}</b>",
-        f"⏳ Pending approval: <b>{s['pending']}</b>",
-        f"❌ Rejected: <b>{s['rejected']}</b>",
+        "📊 <b>Library &amp; Users Statistics</b>\n",
+        f"📚 Published: <b>{s['approved']}</b> · ⏳ Pending: <b>{s['pending']}</b> · ❌ Rejected: <b>{s['rejected']}</b>",
         f"📥 Total downloads: <b>{s['downloads']}</b>",
-        f"👥 Users: <b>{s['users']}</b> · ✍️ Contributors: <b>{s['contributors']}</b>",
         f"🎓 By level: {h(by_level)}",
+        "",
+        "👥 <b>User Analytics</b>",
+        f"• Total registered users: <b>{s['users']}</b>",
+        f"• Active (24h / 7d): <b>{s.get('active_24h', 0)}</b> / <b>{s.get('active_7d', 0)}</b>",
+        f"• Contributors: <b>{s['contributors']}</b> · 🔔 Alert subscribers: <b>{s.get('subscribers_count', 0)}</b>",
+        f"• Languages: {h(lang_summary)}",
+        "• Commands: /users (directory) · <code>/user ID_or_@username</code>",
+        "",
         f"💾 Last backup: {h(s['last_backup_at'] or 'never')}"
         + (" · ⚠️ unsaved changes" if db.has_unsaved_changes() else " · ✅ up to date"),
         f"⚙️ Mode: {h(RUN_MODE)} · ⏱ Uptime: {int((time.time() - START_TIME) // 60)} min",
@@ -1264,6 +1276,153 @@ def stats_text() -> str:
                 f"(<code>{r['id']}</code>)"
             )
     return "\n".join(lines)
+
+
+def kb_admin_stats() -> types.InlineKeyboardMarkup:
+    kb = types.InlineKeyboardMarkup()
+    kb.row(
+        btn("👥 View Users Directory", "adm_users:0"),
+        btn("📥 Export Users CSV", "adm_ucsv"),
+    )
+    return kb
+
+
+LANG_FLAGS = {"en": "🇬🇧 EN", "ar": "🇩🇿 AR", "fr": "🇫🇷 FR"}
+
+
+def users_directory_view(page: int) -> Tuple[str, types.InlineKeyboardMarkup]:
+    rows, total = db.list_users_with_stats(PAGE_SIZE, page * PAGE_SIZE)
+    pages = max(1, math.ceil(total / PAGE_SIZE))
+    page = min(max(page, 0), pages - 1)
+    if page * PAGE_SIZE >= total and total > 0:
+        rows, total = db.list_users_with_stats(PAGE_SIZE, page * PAGE_SIZE)
+
+    lines = [
+        f"👥 <b>Registered Users Directory</b> — <b>{total}</b> total (page {page + 1}/{pages})\n"
+        "<i>Tip: Use <code>/user ID</code> or <code>/user @username</code> to inspect a user.</i>\n"
+    ]
+    if not rows:
+        lines.append("No users recorded yet.")
+    else:
+        start_idx = page * PAGE_SIZE + 1
+        for idx, u in enumerate(rows, start_idx):
+            uid = u["user_id"]
+            name = h(u.get("full_name") or "Unnamed")
+            uname = f" (@{h(u['username'])})" if u.get("username") else ""
+            lang_flag = LANG_FLAGS.get(u.get("lang") or "en", "🇬🇧 EN")
+            subs = f" · 🔔 {h(u['notify_levels'])}" if u.get("notify_levels") else ""
+            up_ok = int(u.get("approved_uploads") or 0)
+            up_pend = int(u.get("pending_uploads") or 0)
+            dl = int(u.get("total_downloads") or 0)
+            saved = int(u.get("saved_count") or 0)
+            last_seen = h((u.get("last_seen") or "")[:16])
+            pend_str = f" (+{up_pend} ⏳)" if up_pend else ""
+            lines.append(
+                f"<b>{idx}. {name}</b>{uname} — <code>{uid}</code>\n"
+                f"    {lang_flag}{subs} · 📤 <b>{up_ok}</b>{pend_str} (📥 {dl}) · 🎒 <b>{saved}</b> · 🕒 {last_seen}"
+            )
+
+    kb = types.InlineKeyboardMarkup()
+    if pages > 1:
+        nav = []
+        if page > 0:
+            nav.append(btn("⬅️ Previous", f"adm_users:{page - 1}"))
+        nav.append(btn(f"📄 {page + 1}/{pages}", "noop"))
+        if page < pages - 1:
+            nav.append(btn("Next ➡️", f"adm_users:{page + 1}"))
+        kb.row(*nav)
+    kb.row(
+        btn("📥 Export Users CSV", "adm_ucsv"),
+        btn("📊 Back to Stats", "adm_stats"),
+    )
+    return "\n".join(lines), kb
+
+
+def user_profile_text(p: Dict[str, Any]) -> str:
+    uid = p["user_id"]
+    name = h(p.get("full_name") or "Unnamed")
+    uname = f"@{h(p['username'])}" if p.get("username") else "<i>none</i>"
+    lang_flag = LANG_FLAGS.get(p.get("lang") or "en", "🇬🇧 EN")
+    subs = h(p.get("notify_levels") or "None")
+    badge = cur.contributor_badge(int(p.get("approved_uploads") or 0))
+    lines = [
+        "🪪 <b>User Profile Inspector</b>\n",
+        f"👤 <b>Name:</b> {name}",
+        f"🆔 <b>Telegram ID:</b> <code>{uid}</code>",
+        f"🔗 <b>Username:</b> {uname}",
+        f"🌐 <b>Language:</b> {lang_flag}",
+        f"🔔 <b>Subscribed Levels:</b> {subs}",
+        f"🏅 <b>Rank:</b> {badge}",
+        "",
+        "📊 <b>Activity Summary</b>",
+        f"• 📤 <b>Uploads:</b> <b>{p.get('approved_uploads', 0)}</b> approved · "
+        f"<b>{p.get('pending_uploads', 0)}</b> pending · "
+        f"<b>{p.get('rejected_uploads', 0)}</b> rejected",
+        f"• 📥 <b>Downloads Received:</b> <b>{p.get('total_downloads', 0)}</b>",
+        f"• ❤️ <b>Thanks Received:</b> <b>{p.get('total_likes_received', 0)}</b>",
+        f"• 🎒 <b>Saved in Bag:</b> <b>{p.get('saved_count', 0)}</b>",
+        f"• ❤️ <b>Thanks Given:</b> <b>{p.get('likes_given', 0)}</b> · ⚠️ <b>Reports Filed:</b> <b>{p.get('reports_filed', 0)}</b>",
+        "",
+        f"🗓 <b>First Seen:</b> <code>{h(p.get('first_seen') or 'N/A')}</code> UTC",
+        f"🕒 <b>Last Seen:</b> <code>{h(p.get('last_seen') or 'N/A')}</code> UTC",
+    ]
+    user_rows, user_total = db.list_user_uploads(uid, limit=5, offset=0)
+    if user_rows:
+        lines.append(f"\n📁 <b>Recent Uploads ({len(user_rows)} of {user_total}):</b>")
+        status_icons = {"approved": "✅", "pending": "⏳", "rejected": "❌"}
+        for r in user_rows:
+            ic = status_icons.get(r["status"], "•")
+            lines.append(
+                f"  {ic} [{h(r['level'])}] <b>{h(truncate(r['title'], 38))}</b> "
+                f"— {r['downloads']} 📥 (<code>#{r['id']}</code>)"
+            )
+    return "\n".join(lines)
+
+
+def send_users_csv(chat_id: int) -> None:
+    rows = db.all_users_with_stats()
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "user_id",
+        "full_name",
+        "username",
+        "lang",
+        "notify_levels",
+        "approved_uploads",
+        "pending_uploads",
+        "total_downloads_received",
+        "total_likes_received",
+        "saved_in_bag",
+        "likes_given",
+        "first_seen_utc",
+        "last_seen_utc",
+    ])
+    for u in rows:
+        writer.writerow([
+            u.get("user_id"),
+            u.get("full_name") or "",
+            u.get("username") or "",
+            u.get("lang") or "en",
+            u.get("notify_levels") or "",
+            u.get("approved_uploads") or 0,
+            u.get("pending_uploads") or 0,
+            u.get("total_downloads") or 0,
+            u.get("total_likes_received") or 0,
+            u.get("saved_count") or 0,
+            u.get("likes_given") or 0,
+            u.get("first_seen") or "",
+            u.get("last_seen") or "",
+        ])
+    data = buf.getvalue().encode("utf-8-sig")
+    bio = io.BytesIO(data)
+    bio.name = f"primary_esl_users_{int(time.time())}.csv"
+    bot.send_document(
+        chat_id,
+        bio,
+        caption=f"👥 <b>Users Export ({len(rows)} registered users)</b>",
+        parse_mode="HTML",
+    )
 
 
 # =============================================================================
@@ -1430,7 +1589,35 @@ def _admin_only(message: types.Message) -> bool:
 @bot.message_handler(commands=["stats"])
 def cmd_stats(message: types.Message) -> None:
     if _admin_only(message):
-        bot.send_message(message.chat.id, stats_text())
+        bot.send_message(message.chat.id, stats_text(), reply_markup=kb_admin_stats())
+
+
+@bot.message_handler(commands=["users"])
+def cmd_users(message: types.Message) -> None:
+    if not _admin_only(message):
+        return
+    text, kb = users_directory_view(0)
+    bot.send_message(message.chat.id, text, reply_markup=kb)
+
+
+@bot.message_handler(commands=["user"])
+def cmd_user(message: types.Message) -> None:
+    if not _admin_only(message):
+        return
+    arg = util.extract_arguments(message.text or "").strip()
+    if not arg:
+        bot.reply_to(
+            message,
+            "🪪 Usage: <code>/user 123456789</code> or <code>/user @username</code> or <code>/user Name</code>",
+        )
+        return
+    profile = db.find_user_profile(arg)
+    if not profile:
+        bot.reply_to(message, f"⚠️ No user found matching <code>{h(arg)}</code>.")
+        return
+    kb = types.InlineKeyboardMarkup()
+    kb.row(btn("👥 Back to Users Directory", "adm_users:0"))
+    bot.reply_to(message, user_profile_text(profile), reply_markup=kb)
 
 
 @bot.message_handler(commands=["pending"])
@@ -1589,7 +1776,7 @@ def on_menu_button(message: types.Message) -> None:
         bot.send_message(message.chat.id, help_text(user_id), disable_web_page_preview=True)
     elif text == BTN_STATS:
         if _admin_only(message):
-            bot.send_message(message.chat.id, stats_text())
+            bot.send_message(message.chat.id, stats_text(), reply_markup=kb_admin_stats())
     elif text == BTN_PENDING:
         cmd_pending(message)
 
@@ -2545,6 +2732,47 @@ def cb_my_uploads_page(call: types.CallbackQuery) -> None:
     safe_answer(call)
 
 
+@bot.callback_query_handler(func=lambda c: (c.data or "").startswith("adm_users:"))
+def cb_admin_users_page(call: types.CallbackQuery) -> None:
+    if not is_admin(call.from_user.id):
+        safe_answer(call, "⛔ Admin only.", alert=True)
+        return
+    if not call.message:
+        safe_answer(call)
+        return
+    try:
+        page = max(0, int(call.data.split(":")[1]))
+    except (ValueError, IndexError):
+        safe_answer(call, "Invalid page.", alert=True)
+        return
+    text, kb = users_directory_view(page)
+    safe_edit_text(call_chat_id(call), call.message.message_id, text, kb)
+    safe_answer(call)
+
+
+@bot.callback_query_handler(func=lambda c: (c.data or "") == "adm_stats")
+def cb_admin_stats(call: types.CallbackQuery) -> None:
+    if not is_admin(call.from_user.id):
+        safe_answer(call, "⛔ Admin only.", alert=True)
+        return
+    if call.message:
+        safe_edit_text(call_chat_id(call), call.message.message_id, stats_text(), kb_admin_stats())
+    safe_answer(call)
+
+
+@bot.callback_query_handler(func=lambda c: (c.data or "") == "adm_ucsv")
+def cb_admin_users_csv(call: types.CallbackQuery) -> None:
+    if not is_admin(call.from_user.id):
+        safe_answer(call, "⛔ Admin only.", alert=True)
+        return
+    safe_answer(call, "📥 Exporting users CSV…")
+    try:
+        send_users_csv(call_chat_id(call))
+    except Exception as exc:  # noqa: BLE001
+        log.exception("Failed exporting users CSV")
+        bot.send_message(call_chat_id(call), f"⚠️ Could not export CSV: {h(exc)}")
+
+
 @bot.callback_query_handler(func=lambda c: True)
 def cb_fallback(call: types.CallbackQuery) -> None:
     safe_answer(call, "⌛ This button is no longer active.")
@@ -2705,7 +2933,9 @@ def setup_bot_commands() -> None:
         types.BotCommand("id", "Show your Telegram ID"),
     ]
     admin = public + [
-        types.BotCommand("stats", "Library statistics"),
+        types.BotCommand("stats", "Library & users statistics"),
+        types.BotCommand("users", "Browse registered users & IDs"),
+        types.BotCommand("user", "Inspect a user: /user ID or @username"),
         types.BotCommand("pending", "Review pending submissions"),
         types.BotCommand("bulk_upload", "Batch upload multiple files to one unit"),
         types.BotCommand("broadcast", "Send announcement to all teachers"),
