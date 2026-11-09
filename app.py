@@ -330,11 +330,15 @@ def resource_caption(r: Dict[str, Any], downloads: Optional[int] = None) -> str:
     except Exception:  # noqa: BLE001
         pass
     likes = int(r.get("likes") or 0)
+    section = r.get("section") or "All Sections"
+    session = r.get("session") or "All Sessions"
     lines = [
         f"📚 <b>{h(r['title'])}</b>",
         "",
         f"🎓 <b>Level:</b> {h(cur.level_label(r['level']))}",
-        f"📘 <b>Unit:</b> {h(r['unit'])}",
+        f"📘 <b>Sequence:</b> {h(r['unit'])}",
+        f"📂 <b>Section:</b> {h(section)}",
+        f"🕒 <b>Session:</b> {h(session)}",
         f"🗂️ <b>Category:</b> {h(r['category'])}",
         f"👤 <b>Shared by:</b> {uploader}",
         f"📥 <b>Downloads:</b> {downloads if downloads is not None else r.get('downloads', 0)}"
@@ -348,11 +352,15 @@ def resource_caption(r: Dict[str, Any], downloads: Optional[int] = None) -> str:
 def archive_caption(r: Dict[str, Any]) -> str:
     """Caption used for the copy stored in the private archive channel."""
     tags = " ".join(filter(None, (_hashtag(t) for t in (r.get("tags") or "").split()[:20])))
+    section = r.get("section") or "All Sections"
+    session = r.get("session") or "All Sessions"
     lines = [
         f"📚 <b>{h(r['title'])}</b>",
         "",
         f"🎓 <b>Level:</b> {h(cur.level_label(r['level']))} {_hashtag(r['level'])}",
-        f"📘 <b>Unit:</b> {h(r['unit'])}",
+        f"📘 <b>Sequence:</b> {h(r['unit'])}",
+        f"📂 <b>Section:</b> {h(section)}",
+        f"🕒 <b>Session:</b> {h(session)}",
         f"🗂️ <b>Category:</b> {h(r['category'])}",
         f"📎 <b>Type:</b> {h(cur.file_type_label(r['file_type']))}",
         f"🏷️ <b>Tags:</b> {h(tags) or '—'}",
@@ -370,12 +378,16 @@ def review_caption(r: Dict[str, Any]) -> str:
     uploader = h(r.get("uploader_name") or "—")
     if r.get("uploader_username"):
         uploader += f" (@{h(r['uploader_username'])})"
+    section = r.get("section") or "All Sections"
+    session = r.get("session") or "All Sessions"
     lines = [
         "🆕 <b>New resource awaiting review</b>",
         "",
         f"📚 <b>Title:</b> {h(r['title'])}",
         f"🎓 <b>Level:</b> {h(cur.level_label(r['level']))}",
-        f"📘 <b>Unit:</b> {h(r['unit'])}",
+        f"📘 <b>Sequence:</b> {h(r['unit'])}",
+        f"📂 <b>Section:</b> {h(section)}",
+        f"🕒 <b>Session:</b> {h(session)}",
         f"🗂️ <b>Category:</b> {h(r['category'])}",
         f"📎 <b>Type:</b> {h(cur.file_type_label(r['file_type']))}"
         + (f" — {h(truncate(r['file_name'], 60))}" if r.get("file_name") else ""),
@@ -432,7 +444,7 @@ def kb_admin_edit_menu(resource_id: int, status: str = "pending") -> types.Inlin
     kb = types.InlineKeyboardMarkup()
     kb.row(
         btn("✏️ Title", f"adm_ef:{resource_id}:title"),
-        btn("🎓 Level & Unit", f"adm_ef:{resource_id}:level"),
+        btn("🎓 Seq / Sec / Sess", f"adm_ef:{resource_id}:level"),
     )
     kb.row(
         btn("🗂️ Category", f"adm_ef:{resource_id}:cat"),
@@ -610,16 +622,32 @@ def kb_upload_levels() -> types.InlineKeyboardMarkup:
 
 def kb_upload_units(level: str) -> types.InlineKeyboardMarkup:
     kb = types.InlineKeyboardMarkup()
-    for idx, unit in enumerate(cur.get_units(level)):
-        kb.row(btn(unit, f"up_un:{idx}"))
+    for idx, seq in enumerate(cur.get_sequences(level)):
+        kb.row(btn(seq, f"up_un:{idx}"))
     kb.row(btn("⬅️ Back", "up_back:lv"), btn(*CANCEL_BTN))
+    return kb
+
+
+def kb_upload_sections(level: str, sequence: str) -> types.InlineKeyboardMarkup:
+    kb = types.InlineKeyboardMarkup()
+    for idx, sec in enumerate(cur.get_sections(level, sequence)):
+        kb.row(btn(sec, f"up_sc:{idx}"))
+    kb.row(btn("⬅️ Back", "up_back:un"), btn(*CANCEL_BTN))
+    return kb
+
+
+def kb_upload_sessions(level: str) -> types.InlineKeyboardMarkup:
+    kb = types.InlineKeyboardMarkup()
+    for idx, sess in enumerate(cur.get_sessions(level)):
+        kb.row(btn(sess, f"up_ss:{idx}"))
+    kb.row(btn("⬅️ Back", "up_back:sc"), btn(*CANCEL_BTN))
     return kb
 
 
 def kb_upload_categories() -> types.InlineKeyboardMarkup:
     kb = types.InlineKeyboardMarkup(row_width=2)
     kb.add(*[btn(cat, f"up_ct:{idx}") for idx, cat in enumerate(cur.CATEGORIES)])
-    kb.row(btn("⬅️ Back", "up_back:un"), btn(*CANCEL_BTN))
+    kb.row(btn("⬅️ Back", "up_back:ss"), btn(*CANCEL_BTN))
     return kb
 
 
@@ -636,7 +664,7 @@ def kb_upload_confirm() -> types.InlineKeyboardMarkup:
     return kb
 
 
-# ---- browse keyboards -------------------------------------------------------
+# ---- browse keyboards (Level -> Sequence -> Section -> Session -> Category) -
 def kb_browse_levels() -> types.InlineKeyboardMarkup:
     counts = db.facet_counts()["levels"]
     kb = types.InlineKeyboardMarkup()
@@ -648,21 +676,57 @@ def kb_browse_levels() -> types.InlineKeyboardMarkup:
 def kb_browse_units(level: str) -> types.InlineKeyboardMarkup:
     counts = db.facet_counts(level)["units"]
     kb = types.InlineKeyboardMarkup()
-    for idx, unit in enumerate(cur.get_units(level)):
-        kb.row(btn(f"{unit} ({counts.get(unit, 0)})", f"br_un:{level}:{idx}"))
-    kb.row(btn(f"📚 All {level} units ({sum(counts.values())})", f"br_un:{level}:a"))
+    for idx, seq in enumerate(cur.get_sequences(level)):
+        kb.row(btn(f"{seq} ({counts.get(seq, 0)})", f"br_un:{level}:{idx}"))
+    kb.row(btn(f"📚 All {level} sequences ({sum(counts.values())})", f"br_un:{level}:a"))
     kb.row(btn("⬅️ Back to levels", "br_home"))
     return kb
 
 
-def kb_browse_categories(level: str, unit_key: str) -> types.InlineKeyboardMarkup:
-    unit = None if unit_key == "a" else cur.get_unit(level, int(unit_key))
-    counts = db.facet_counts(level, unit)["categories"]
+def kb_browse_sections(level: str, seq_key: str) -> types.InlineKeyboardMarkup:
+    seq = None if seq_key == "a" else cur.get_sequence(level, int(seq_key))
+    counts = db.facet_counts(level, seq)["sections"]
+    kb = types.InlineKeyboardMarkup()
+    if seq:
+        for idx, sec in enumerate(cur.get_sections(level, seq)):
+            kb.row(btn(f"📂 {sec} ({counts.get(sec, 0)})", f"br_sc:{level}:{seq_key}:{idx}"))
+    kb.row(btn(f"📂 All sections ({sum(counts.values())})", f"br_sc:{level}:{seq_key}:a"))
+    kb.row(btn("⬅️ Back to sequences", f"br_lv:{level}"))
+    return kb
+
+
+def kb_browse_sessions(level: str, seq_key: str, sec_key: str) -> types.InlineKeyboardMarkup:
+    seq = None if seq_key == "a" else cur.get_sequence(level, int(seq_key))
+    sec = None if (sec_key == "a" or not seq) else cur.get_section(level, seq, int(sec_key))
+    counts = db.facet_counts(level, seq, sec)["sessions"]
+    kb = types.InlineKeyboardMarkup()
+    for idx, sess in enumerate(cur.get_sessions(level)):
+        kb.row(btn(f"🕒 {sess} ({counts.get(sess, 0)})", f"br_ss:{level}:{seq_key}:{sec_key}:{idx}"))
+    kb.row(btn(f"🕒 All sessions ({sum(counts.values())})", f"br_ss:{level}:{seq_key}:{sec_key}:a"))
+    kb.row(btn("⬅️ Back to sections", f"br_un:{level}:{seq_key}"))
+    return kb
+
+
+def kb_browse_categories(level: str, seq_key: str, sec_key: str, sess_key: str) -> types.InlineKeyboardMarkup:
+    seq = None if seq_key == "a" else cur.get_sequence(level, int(seq_key))
+    sec = None if (sec_key == "a" or not seq) else cur.get_section(level, seq, int(sec_key))
+    sess = None if sess_key == "a" else cur.get_session(level, int(sess_key))
+    counts = db.facet_counts(level, seq, sec, sess)["categories"]
     kb = types.InlineKeyboardMarkup()
     for idx, cat in enumerate(cur.CATEGORIES):
-        kb.row(btn(f"{cat} ({counts.get(cat, 0)})", f"br_ct:{level}:{unit_key}:{idx}:0"))
-    kb.row(btn(f"🗂️ All categories ({sum(counts.values())})", f"br_ct:{level}:{unit_key}:a:0"))
-    kb.row(btn("⬅️ Back to units", f"br_lv:{level}"))
+        kb.row(
+            btn(
+                f"{cat} ({counts.get(cat, 0)})",
+                f"br_ct:{level}:{seq_key}:{sec_key}:{sess_key}:{idx}:0",
+            )
+        )
+    kb.row(
+        btn(
+            f"🗂️ All categories ({sum(counts.values())})",
+            f"br_ct:{level}:{seq_key}:{sec_key}:{sess_key}:a:0",
+        )
+    )
+    kb.row(btn("⬅️ Back to sessions", f"br_sc:{level}:{seq_key}:{sec_key}"))
     return kb
 
 
@@ -735,7 +799,9 @@ def upload_summary(s: Dict[str, Any], user_id: int) -> str:
         f"📎 <b>File:</b> {h(file_line)}\n"
         f"📚 <b>Title:</b> {h(s['title'])}\n"
         f"🎓 <b>Level:</b> {h(cur.level_label(s['level']))}\n"
-        f"📘 <b>Unit:</b> {h(s['unit'])}\n"
+        f"📘 <b>Sequence:</b> {h(s['unit'])}\n"
+        f"📂 <b>Section:</b> {h(s.get('section') or 'All Sections')}\n"
+        f"🕒 <b>Session:</b> {h(s.get('session') or 'All Sessions')}\n"
         f"🗂️ <b>Category:</b> {h(s['category'])}\n"
         f"🏷️ <b>Keywords:</b> {h(s.get('tags') or '—')}\n\n"
         f"{footer}"
@@ -787,7 +853,7 @@ def prompt_title(chat_id: int, user_id: int) -> None:
     kb.row(btn(*CANCEL_BTN))
     msg = bot.send_message(
         chat_id,
-        "✏️ <b>Step 2/6 — Title</b>\n\n"
+        "✏️ <b>Step 2/8 — Title</b>\n\n"
         "Type a clear, descriptive title for this resource.\n"
         "<i>Example: Flashcards My Family</i>",
         reply_markup=kb,
@@ -809,7 +875,7 @@ def start_upload(message: types.Message) -> None:
     sessions.clear(user.id)
     msg = bot.send_message(
         message.chat.id,
-        "📤 <b>Upload a resource — Step 1/6</b>\n\n"
+        "📤 <b>Upload a resource — Step 1/8</b>\n\n"
         "Send me the file you want to share with fellow teachers:\n"
         "📎 document (PDF, Word, PowerPoint…) · 🖼️ photo · 🎬 video · 🎵 audio\n\n"
         "<i>Tip: send one file at a time.</i>",
@@ -820,7 +886,7 @@ def start_upload(message: types.Message) -> None:
 
 def go_to_levels(chat_id: int, user_id: int, edit_message_id: Optional[int] = None) -> None:
     sessions.update(user_id, step="await_level")
-    text = "🎓 <b>Step 3/6 — Level</b>\n\nWhich level is this resource for?"
+    text = "🎓 <b>Step 3/8 — Level</b>\n\nWhich level is this resource for?"
     if edit_message_id:
         safe_edit_text(chat_id, edit_message_id, text, kb_upload_levels())
         sessions.update(user_id, prompt_msg=edit_message_id)
@@ -834,9 +900,34 @@ def go_to_units(chat_id: int, user_id: int, message_id: int) -> None:
     level = s["level"]
     safe_edit_text(
         chat_id, message_id,
-        f"📘 <b>Step 4/6 — Unit / Sequence</b>\n\n🎓 Level: <b>{h(cur.level_label(level))}</b>\n\n"
-        "Choose the unit or sequence:",
+        f"📘 <b>Step 4/8 — Sequence</b>\n\n🎓 Level: <b>{h(cur.level_label(level))}</b>\n\n"
+        "Choose the Sequence:",
         kb_upload_units(level),
+    )
+
+
+def go_to_sections(chat_id: int, user_id: int, message_id: int) -> None:
+    s = sessions.update(user_id, step="await_section")
+    level, seq = s["level"], s["unit"]
+    safe_edit_text(
+        chat_id, message_id,
+        f"📂 <b>Step 5/8 — Section</b>\n\n"
+        f"🎓 {h(level)} · 📘 {h(seq)}\n\n"
+        "Choose the Section:",
+        kb_upload_sections(level, seq),
+    )
+
+
+def go_to_sessions(chat_id: int, user_id: int, message_id: int) -> None:
+    s = sessions.update(user_id, step="await_session")
+    level = s["level"]
+    safe_edit_text(
+        chat_id, message_id,
+        f"🕒 <b>Step 6/8 — Session</b>\n\n"
+        f"🎓 {h(level)} · 📘 {h(s['unit'])}\n"
+        f"📂 {h(s['section'])}\n\n"
+        "Choose the Session:",
+        kb_upload_sessions(level),
     )
 
 
@@ -844,7 +935,9 @@ def go_to_categories(chat_id: int, user_id: int, message_id: int) -> None:
     s = sessions.update(user_id, step="await_category")
     safe_edit_text(
         chat_id, message_id,
-        f"🗂️ <b>Step 5/6 — Category</b>\n\n🎓 {h(s['level'])} · 📘 {h(s['unit'])}\n\n"
+        f"🗂️ <b>Step 7/8 — Resource Category</b>\n\n"
+        f"🎓 {h(s['level'])} · 📘 {h(s['unit'])}\n"
+        f"📂 {h(s.get('section', ''))} · 🕒 {h(s.get('session', ''))}\n\n"
         "What kind of resource is it?",
         kb_upload_categories(),
     )
@@ -854,7 +947,7 @@ def go_to_tags(chat_id: int, user_id: int, message_id: int) -> None:
     sessions.update(user_id, step="await_tags", prompt_msg=message_id)
     safe_edit_text(
         chat_id, message_id,
-        "🏷️ <b>Step 6/6 — Keywords</b>\n\n"
+        "🏷️ <b>Step 8/8 — Keywords</b>\n\n"
         "Type a few search keywords separated by spaces, so teachers can find it easily.\n"
         "<i>Example: phonics cvc family father mother</i>",
         kb_upload_tags(),
@@ -889,6 +982,8 @@ def finalize_upload(call: types.CallbackQuery, s: Dict[str, Any]) -> None:
         title=s["title"],
         level=s["level"],
         unit=s["unit"],
+        section=s.get("section") or "All Sections (Sequence General)",
+        session=s.get("session") or "All Sessions (Section General)",
         category=s["category"],
         tags=s.get("tags", ""),
         uploader_id=user.id,
@@ -966,16 +1061,27 @@ def run_search(chat_id: int, query: str, page: int = 0, key: Optional[str] = Non
         bot.send_message(chat_id, text, reply_markup=kb)
 
 
-def browse_results(level: str, unit_key: str, cat_key: str, page: int) -> Tuple[str, types.InlineKeyboardMarkup]:
-    unit = None if unit_key == "a" else cur.get_unit(level, int(unit_key))
+def browse_results(
+    level: str, seq_key: str, sec_key: str, sess_key: str, cat_key: str, page: int
+) -> Tuple[str, types.InlineKeyboardMarkup]:
+    seq = None if seq_key == "a" else cur.get_sequence(level, int(seq_key))
+    sec = None if (sec_key == "a" or not seq) else cur.get_section(level, seq, int(sec_key))
+    sess = None if sess_key == "a" else cur.get_session(level, int(sess_key))
     category = None if cat_key == "a" else cur.get_category(int(cat_key))
-    rows, total = db.browse(level, unit, category, PAGE_SIZE, page * PAGE_SIZE)
+    rows, total = db.browse(level, seq, sec, sess, category, PAGE_SIZE, page * PAGE_SIZE)
     header = (
-        f"📂 <b>{h(cur.level_label(level))}</b>\n"
-        f"📘 {h(unit or 'All units')}\n"
+        f"🎓 <b>{h(cur.level_label(level))}</b>\n"
+        f"📘 {h(seq or 'All sequences')}\n"
+        f"📂 {h(sec or 'All sections')}\n"
+        f"🕒 {h(sess or 'All sessions')}\n"
         f"🗂️ {h(category or 'All categories')}\n\n"
     )
-    back = [[btn("⬅️ Back to categories", f"br_un:{level}:{unit_key}"), btn("🏠 Levels", "br_home")]]
+    back = [
+        [
+            btn("⬅️ Categories", f"br_ss:{level}:{seq_key}:{sec_key}:{sess_key}"),
+            btn("🏠 Levels", "br_home"),
+        ]
+    ]
     if total == 0:
         text = header + "📭 No resources here yet.\nBe the first to share one with /upload! 🙌"
         kb = types.InlineKeyboardMarkup()
@@ -985,7 +1091,7 @@ def browse_results(level: str, unit_key: str, cat_key: str, page: int) -> Tuple[
     pages = max(1, math.ceil(total / PAGE_SIZE))
     text = header + f"✅ <b>{total}</b> resource{'s' if total != 1 else ''}" + (
         f" — page {page + 1}/{pages}" if pages > 1 else "") + ". Tap one to download 👇"
-    kb = results_markup(rows, page, total, f"br_ct:{level}:{unit_key}:{cat_key}", back)
+    kb = results_markup(rows, page, total, f"br_ct:{level}:{seq_key}:{sec_key}:{sess_key}:{cat_key}", back)
     return text, kb
 
 
@@ -1127,7 +1233,7 @@ def start_bulk_upload(message: types.Message) -> None:
     kb.row(btn(*CANCEL_BTN))
     msg = bot.send_message(
         message.chat.id,
-        "📦 <b>Bulk Admin Upload — Step 1/3 (Level)</b>\n\n"
+        "📦 <b>Bulk Admin Upload — Step 1/5 (Level)</b>\n\n"
         "Choose the level that all files in this batch belong to:",
         reply_markup=kb,
     )
@@ -1521,8 +1627,10 @@ def on_file(message: types.Message) -> None:
             title=title,
             level=s["level"],
             unit=s["unit"],
+            section=s.get("section") or "All Sections (Sequence General)",
+            session=s.get("session") or "All Sessions (Section General)",
             category=s["category"],
-            tags=normalize_tags(f"{s['level']} {s['unit']} {title}"),
+            tags=normalize_tags(f"{s['level']} {s['unit']} {s.get('section', '')} {s.get('session', '')} {title}"),
             uploader_id=user.id,
             uploader_name=user_full_name(user),
             uploader_username=user.username,
@@ -1748,11 +1856,31 @@ def cb_upload(call: types.CallbackQuery) -> None:
 
     elif data.startswith("up_un:"):
         raw = data.split(":", 1)[1]
-        unit = cur.get_unit(s.get("level", ""), int(raw)) if raw.isdigit() else None
+        unit = cur.get_sequence(s.get("level", ""), int(raw)) if raw.isdigit() else None
         if step != "await_unit" or not unit:
             expired()
             return
         sessions.update(user_id, unit=unit)
+        safe_answer(call)
+        go_to_sections(chat_id, user_id, message_id)
+
+    elif data.startswith("up_sc:"):
+        raw = data.split(":", 1)[1]
+        sec = cur.get_section(s.get("level", ""), s.get("unit", ""), int(raw)) if raw.isdigit() else None
+        if step != "await_section" or not sec:
+            expired()
+            return
+        sessions.update(user_id, section=sec)
+        safe_answer(call)
+        go_to_sessions(chat_id, user_id, message_id)
+
+    elif data.startswith("up_ss:"):
+        raw = data.split(":", 1)[1]
+        sess = cur.get_session(s.get("level", ""), int(raw)) if raw.isdigit() else None
+        if step != "await_session" or not sess:
+            expired()
+            return
+        sessions.update(user_id, session=sess)
         safe_answer(call)
         go_to_categories(chat_id, user_id, message_id)
 
@@ -1771,9 +1899,15 @@ def cb_upload(call: types.CallbackQuery) -> None:
         if target == "lv" and step == "await_unit":
             safe_answer(call)
             go_to_levels(chat_id, user_id, edit_message_id=message_id)
-        elif target == "un" and step == "await_category":
+        elif target == "un" and step == "await_section":
             safe_answer(call)
             go_to_units(chat_id, user_id, message_id)
+        elif target == "sc" and step == "await_session":
+            safe_answer(call)
+            go_to_sections(chat_id, user_id, message_id)
+        elif target == "ss" and step == "await_category":
+            safe_answer(call)
+            go_to_sessions(chat_id, user_id, message_id)
         elif target == "ct" and step == "await_tags":
             safe_answer(call)
             go_to_categories(chat_id, user_id, message_id)
@@ -1941,23 +2075,59 @@ def cb_admin_decision(call: types.CallbackQuery) -> None:
             safe_answer(call, "Invalid level.", alert=True)
             return
         kb = types.InlineKeyboardMarkup()
-        for idx, unit in enumerate(cur.get_units(lv)):
-            kb.row(btn(unit, f"adm_eu:{resource_id}:{lv}:{idx}"))
+        for idx, seq in enumerate(cur.get_sequences(lv)):
+            kb.row(btn(seq, f"adm_eu:{resource_id}:{lv}:{idx}"))
         kb.row(btn("⬅️ Back", f"adm_ef:{resource_id}:level"))
-        safe_answer(call, f"Choose {lv} unit")
+        safe_answer(call, f"Choose {lv} sequence")
         if message_id:
             cap = review_caption(r) if r["status"] == "pending" else resource_caption(r)
             safe_edit_caption(chat_id, message_id, cap, kb)
 
     elif action == "adm_eu" and len(parts) >= 4 and parts[3].isdigit():
         lv = parts[2]
-        unit = cur.get_unit(lv, int(parts[3]))
-        if not unit:
-            safe_answer(call, "Invalid unit.", alert=True)
+        seq_idx = int(parts[3])
+        seq = cur.get_sequence(lv, seq_idx)
+        if not seq:
+            safe_answer(call, "Invalid sequence.", alert=True)
             return
-        r = db.update_resource_metadata(resource_id, level=lv, unit=unit)
-        backup_async(f"Edited level/unit of #{resource_id}")
-        safe_answer(call, f"✅ Updated to {lv} · {unit}")
+        kb = types.InlineKeyboardMarkup()
+        for sec_idx, sec in enumerate(cur.get_sections(lv, seq)):
+            kb.row(btn(sec, f"adm_esc:{resource_id}:{lv}:{seq_idx}:{sec_idx}"))
+        kb.row(btn("⬅️ Back", f"adm_el:{resource_id}:{lv}"))
+        safe_answer(call, "Choose section")
+        if message_id:
+            cap = review_caption(r) if r["status"] == "pending" else resource_caption(r)
+            safe_edit_caption(chat_id, message_id, cap, kb)
+
+    elif action == "adm_esc" and len(parts) >= 5 and parts[3].isdigit() and parts[4].isdigit():
+        lv = parts[2]
+        seq_idx, sec_idx = int(parts[3]), int(parts[4])
+        seq = cur.get_sequence(lv, seq_idx)
+        sec = cur.get_section(lv, seq, sec_idx) if seq else None
+        if not seq or not sec:
+            safe_answer(call, "Invalid section.", alert=True)
+            return
+        kb = types.InlineKeyboardMarkup()
+        for sess_idx, sess in enumerate(cur.get_sessions(lv)):
+            kb.row(btn(sess, f"adm_ess:{resource_id}:{lv}:{seq_idx}:{sec_idx}:{sess_idx}"))
+        kb.row(btn("⬅️ Back", f"adm_eu:{resource_id}:{lv}:{seq_idx}"))
+        safe_answer(call, "Choose session")
+        if message_id:
+            cap = review_caption(r) if r["status"] == "pending" else resource_caption(r)
+            safe_edit_caption(chat_id, message_id, cap, kb)
+
+    elif action == "adm_ess" and len(parts) >= 6 and parts[3].isdigit() and parts[4].isdigit() and parts[5].isdigit():
+        lv = parts[2]
+        seq_idx, sec_idx, sess_idx = int(parts[3]), int(parts[4]), int(parts[5])
+        seq = cur.get_sequence(lv, seq_idx)
+        sec = cur.get_section(lv, seq, sec_idx) if seq else None
+        sess = cur.get_session(lv, sess_idx)
+        if not seq or not sec or not sess:
+            safe_answer(call, "Invalid session.", alert=True)
+            return
+        r = db.update_resource_metadata(resource_id, level=lv, unit=seq, section=sec, session=sess)
+        backup_async(f"Edited curriculum tree of #{resource_id}")
+        safe_answer(call, f"✅ Updated to {lv} · {seq}")
         if message_id and r:
             cap = review_caption(r) if r["status"] == "pending" else resource_caption(r)
             safe_edit_caption(chat_id, message_id, cap, kb_admin_edit_menu(resource_id, r["status"]))
@@ -2131,29 +2301,64 @@ def cb_bulk_upload(call: types.CallbackQuery) -> None:
         lv = parts[1]
         sessions.update(uid, step="bulk_unit", level=lv)
         kb = types.InlineKeyboardMarkup()
-        for idx, u in enumerate(cur.get_units(lv)):
-            kb.row(btn(u, f"bk_un:{idx}"))
+        for idx, seq in enumerate(cur.get_sequences(lv)):
+            kb.row(btn(seq, f"bk_un:{idx}"))
         kb.row(btn(*CANCEL_BTN))
         safe_answer(call)
         safe_edit_text(
             chat_id, mid,
-            f"📦 <b>Bulk Admin Upload — Step 2/3 (Unit)</b>\n🎓 Level: <b>{h(cur.level_label(lv))}</b>\n\nChoose the unit:",
+            f"📦 <b>Bulk Admin Upload — Step 2/5 (Sequence)</b>\n🎓 Level: <b>{h(cur.level_label(lv))}</b>\n\nChoose the Sequence:",
             kb,
         )
     elif action == "bk_un" and len(parts) >= 2 and parts[1].isdigit():
-        unit = cur.get_unit(s.get("level", ""), int(parts[1]))
-        if not unit:
-            safe_answer(call, "Invalid unit.", alert=True)
+        seq = cur.get_sequence(s.get("level", ""), int(parts[1]))
+        if not seq:
+            safe_answer(call, "Invalid sequence.", alert=True)
             return
-        sessions.update(uid, step="bulk_cat", unit=unit)
+        sessions.update(uid, step="bulk_sec", unit=seq)
+        kb = types.InlineKeyboardMarkup()
+        for idx, sec in enumerate(cur.get_sections(s["level"], seq)):
+            kb.row(btn(sec, f"bk_sc:{idx}"))
+        kb.row(btn(*CANCEL_BTN))
+        safe_answer(call)
+        safe_edit_text(
+            chat_id, mid,
+            f"📦 <b>Bulk Admin Upload — Step 3/5 (Section)</b>\n"
+            f"🎓 {h(s['level'])} · 📘 {h(seq)}\n\nChoose the Section:",
+            kb,
+        )
+    elif action == "bk_sc" and len(parts) >= 2 and parts[1].isdigit():
+        sec = cur.get_section(s.get("level", ""), s.get("unit", ""), int(parts[1]))
+        if not sec:
+            safe_answer(call, "Invalid section.", alert=True)
+            return
+        sessions.update(uid, step="bulk_sess", section=sec)
+        kb = types.InlineKeyboardMarkup()
+        for idx, sess in enumerate(cur.get_sessions(s["level"])):
+            kb.row(btn(sess, f"bk_ss:{idx}"))
+        kb.row(btn(*CANCEL_BTN))
+        safe_answer(call)
+        safe_edit_text(
+            chat_id, mid,
+            f"📦 <b>Bulk Admin Upload — Step 4/5 (Session)</b>\n"
+            f"🎓 {h(s['level'])} · 📘 {h(s['unit'])}\n📂 {h(sec)}\n\nChoose the Session:",
+            kb,
+        )
+    elif action == "bk_ss" and len(parts) >= 2 and parts[1].isdigit():
+        sess = cur.get_session(s.get("level", ""), int(parts[1]))
+        if not sess:
+            safe_answer(call, "Invalid session.", alert=True)
+            return
+        sessions.update(uid, step="bulk_cat", session=sess)
         kb = types.InlineKeyboardMarkup(row_width=2)
         kb.add(*[btn(c, f"bk_ct:{i}") for i, c in enumerate(cur.CATEGORIES)])
         kb.row(btn(*CANCEL_BTN))
         safe_answer(call)
         safe_edit_text(
             chat_id, mid,
-            f"📦 <b>Bulk Admin Upload — Step 3/3 (Category)</b>\n"
-            f"🎓 {h(s['level'])} · 📘 {h(unit)}\n\nChoose the category:",
+            f"📦 <b>Bulk Admin Upload — Step 5/5 (Category)</b>\n"
+            f"🎓 {h(s['level'])} · 📘 {h(s['unit'])}\n"
+            f"📂 {h(s.get('section', ''))} · 🕒 {h(sess)}\n\nChoose the Category:",
             kb,
         )
     elif action == "bk_ct" and len(parts) >= 2 and parts[1].isdigit():
@@ -2169,7 +2374,9 @@ def cb_bulk_upload(call: types.CallbackQuery) -> None:
             chat_id, mid,
             f"📦 <b>Bulk Mode Active!</b>\n\n"
             f"🎓 <b>Level:</b> {h(cur.level_label(s['level']))}\n"
-            f"📘 <b>Unit:</b> {h(s['unit'])}\n"
+            f"📘 <b>Sequence:</b> {h(s['unit'])}\n"
+            f"📂 <b>Section:</b> {h(s.get('section', ''))}\n"
+            f"🕒 <b>Session:</b> {h(s.get('session', ''))}\n"
             f"🗂️ <b>Category:</b> {h(cat)}\n\n"
             "📥 <b>Now drop as many files as you want!</b>\n"
             "Each file's title will be auto-extracted from its caption or filename and published immediately.\n"
@@ -2178,7 +2385,7 @@ def cb_bulk_upload(call: types.CallbackQuery) -> None:
         )
 
 
-# ---- browse callbacks ----------------------------------------------------------
+# ---- browse callbacks (Level -> Sequence -> Section -> Session -> Category) -
 @bot.callback_query_handler(func=lambda c: (c.data or "").startswith("br_"))
 def cb_browse(call: types.CallbackQuery) -> None:
     chat_id = call_chat_id(call)
@@ -2190,35 +2397,86 @@ def cb_browse(call: types.CallbackQuery) -> None:
     action = parts[0]
     try:
         if action == "br_home":
-            safe_edit_text(chat_id, message_id, "📂 <b>Browse the library</b>\n\nChoose a level:",
-                           kb_browse_levels())
+            lang = db.get_user_lang(call.from_user.id)
+            safe_edit_text(chat_id, message_id, cur.tr(lang, "choose_level"), kb_browse_levels())
 
         elif action == "br_lv":
             level = parts[1]
             if not cur.is_valid_level(level):
                 raise ValueError(level)
-            safe_edit_text(chat_id, message_id,
-                           f"📂 <b>{h(cur.level_label(level))}</b>\n\nChoose a unit / sequence:",
-                           kb_browse_units(level))
+            safe_edit_text(
+                chat_id, message_id,
+                f"🎓 <b>{h(cur.level_label(level))}</b>\n\nStep 2/5 — Choose a <b>Sequence</b>:",
+                kb_browse_units(level),
+            )
 
         elif action == "br_un":
-            level, unit_key = parts[1], parts[2]
-            if not cur.is_valid_level(level) or not (unit_key == "a" or cur.get_unit(level, int(unit_key))):
-                raise ValueError(unit_key)
-            unit_name = "All units" if unit_key == "a" else cur.get_unit(level, int(unit_key))
-            safe_edit_text(chat_id, message_id,
-                           f"📂 <b>{h(cur.level_label(level))}</b>\n📘 {h(unit_name)}\n\nChoose a category:",
-                           kb_browse_categories(level, unit_key))
+            level, seq_key = parts[1], parts[2]
+            if not cur.is_valid_level(level) or not (seq_key == "a" or cur.get_sequence(level, int(seq_key))):
+                raise ValueError(seq_key)
+            seq_name = "All sequences" if seq_key == "a" else cur.get_sequence(level, int(seq_key))
+            if seq_key == "a":
+                # Skip section picker when browsing all sequences of a level
+                safe_edit_text(
+                    chat_id, message_id,
+                    f"🎓 <b>{h(cur.level_label(level))}</b>\n📘 {h(seq_name)}\n\nStep 4/5 — Choose a <b>Session</b>:",
+                    kb_browse_sessions(level, "a", "a"),
+                )
+            else:
+                safe_edit_text(
+                    chat_id, message_id,
+                    f"🎓 <b>{h(cur.level_label(level))}</b>\n📘 {h(seq_name)}\n\nStep 3/5 — Choose a <b>Section</b>:",
+                    kb_browse_sections(level, seq_key),
+                )
 
-        elif action == "br_ct":
-            level, unit_key, cat_key, page = parts[1], parts[2], parts[3], int(parts[4])
+        elif action == "br_sc":
+            level, seq_key, sec_key = parts[1], parts[2], parts[3]
             if not cur.is_valid_level(level):
                 raise ValueError(level)
-            if unit_key != "a" and not cur.get_unit(level, int(unit_key)):
-                raise ValueError(unit_key)
-            if cat_key != "a" and not cur.get_category(int(cat_key)):
-                raise ValueError(cat_key)
-            text, kb = browse_results(level, unit_key, cat_key, max(page, 0))
+            seq_name = "All sequences" if seq_key == "a" else cur.get_sequence(level, int(seq_key))
+            if not seq_name:
+                raise ValueError(seq_key)
+            sec_name = (
+                "All sections"
+                if (sec_key == "a" or seq_key == "a")
+                else cur.get_section(level, seq_name, int(sec_key))
+            )
+            if not sec_name:
+                raise ValueError(sec_key)
+            safe_edit_text(
+                chat_id, message_id,
+                f"🎓 <b>{h(cur.level_label(level))}</b>\n📘 {h(seq_name)}\n📂 {h(sec_name)}\n\n"
+                "Step 4/5 — Choose a <b>Session</b>:",
+                kb_browse_sessions(level, seq_key, sec_key),
+            )
+
+        elif action == "br_ss":
+            level, seq_key, sec_key, sess_key = parts[1], parts[2], parts[3], parts[4]
+            if not cur.is_valid_level(level):
+                raise ValueError(level)
+            seq_name = "All sequences" if seq_key == "a" else cur.get_sequence(level, int(seq_key))
+            sec_name = (
+                "All sections"
+                if (sec_key == "a" or seq_key == "a" or not seq_name)
+                else cur.get_section(level, seq_name, int(sec_key))
+            )
+            sess_name = "All sessions" if sess_key == "a" else cur.get_session(level, int(sess_key))
+            if not seq_name or not sec_name or not sess_name:
+                raise ValueError(sess_key)
+            safe_edit_text(
+                chat_id, message_id,
+                f"🎓 <b>{h(cur.level_label(level))}</b>\n📘 {h(seq_name)}\n"
+                f"📂 {h(sec_name)}\n🕒 {h(sess_name)}\n\nStep 5/5 — Choose a <b>Category</b>:",
+                kb_browse_categories(level, seq_key, sec_key, sess_key),
+            )
+
+        elif action == "br_ct":
+            level, seq_key, sec_key, sess_key, cat_key, page = (
+                parts[1], parts[2], parts[3], parts[4], parts[5], int(parts[6])
+            )
+            if not cur.is_valid_level(level):
+                raise ValueError(level)
+            text, kb = browse_results(level, seq_key, sec_key, sess_key, cat_key, max(page, 0))
             safe_edit_text(chat_id, message_id, text, kb)
         safe_answer(call)
     except (ValueError, IndexError):

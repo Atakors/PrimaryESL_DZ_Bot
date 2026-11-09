@@ -65,6 +65,8 @@ CREATE TABLE IF NOT EXISTS resources (
     title             TEXT    NOT NULL,
     level             TEXT    NOT NULL,
     unit              TEXT    NOT NULL,
+    section           TEXT    NOT NULL DEFAULT 'All Sections (Sequence General)',
+    session           TEXT    NOT NULL DEFAULT 'All Sessions (Section General)',
     category          TEXT    NOT NULL,
     tags              TEXT    NOT NULL DEFAULT '',
     uploader_id       INTEGER NOT NULL,
@@ -119,7 +121,7 @@ CREATE TABLE IF NOT EXISTS meta (
 
 SCHEMA_INDEXES = """
 CREATE INDEX IF NOT EXISTS idx_resources_status    ON resources(status);
-CREATE INDEX IF NOT EXISTS idx_resources_browse    ON resources(status, level, unit, category);
+CREATE INDEX IF NOT EXISTS idx_resources_browse    ON resources(status, level, unit, section, session, category);
 CREATE INDEX IF NOT EXISTS idx_resources_unique    ON resources(file_unique_id);
 CREATE INDEX IF NOT EXISTS idx_resources_downloads ON resources(downloads);
 CREATE INDEX IF NOT EXISTS idx_resources_uploader  ON resources(uploader_id);
@@ -134,6 +136,8 @@ REQUIRED_COLUMNS: Dict[str, Dict[str, str]] = {
         "file_name": "TEXT",
         "file_size": "INTEGER",
         "mime_type": "TEXT",
+        "section": "TEXT NOT NULL DEFAULT 'All Sections (Sequence General)'",
+        "session": "TEXT NOT NULL DEFAULT 'All Sessions (Section General)'",
         "tags": "TEXT NOT NULL DEFAULT ''",
         "uploader_name": "TEXT",
         "uploader_username": "TEXT",
@@ -184,9 +188,17 @@ def tokenize_query(query: str) -> List[str]:
     i = 0
     while i < len(raw):
         word = raw[i]
-        # "unit 3" / "seq 2" / "sequence 1" -> phrase token
+        # "unit 3" / "seq 2" / "sec 1" / "session 4" -> phrase token
         if word in ("unit", "seq", "sequence") and i + 1 < len(raw) and raw[i + 1].isdigit():
-            tokens.append(f"{'seq' if word != 'unit' else 'unit'} {raw[i + 1]}")
+            tokens.append(f"seq {raw[i + 1]}")
+            i += 2
+            continue
+        if word in ("sec", "section") and i + 1 < len(raw) and raw[i + 1].isdigit():
+            tokens.append(f"sec {raw[i + 1]}")
+            i += 2
+            continue
+        if word == "session" and i + 1 < len(raw) and raw[i + 1].isdigit():
+            tokens.append(f"session {raw[i + 1]}")
             i += 2
             continue
         if word in curriculum.SEARCH_SYNONYMS:
@@ -275,6 +287,9 @@ class Database:
                 if column not in existing:
                     log.warning("Migrating: adding %s.%s", table, column)
                     conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+        # Migrate legacy "Unit X: ..." names to "Seq X: ..." so old resources appear in the new tree.
+        for old_unit, new_seq in curriculum.LEGACY_UNIT_TO_SEQUENCE.items():
+            conn.execute("UPDATE resources SET unit = ? WHERE unit = ?", (new_seq, old_unit))
 
     @staticmethod
     def _row(row: Optional[sqlite3.Row]) -> Optional[Dict[str, Any]]:
@@ -395,6 +410,8 @@ class Database:
         unit: str,
         category: str,
         uploader_id: int,
+        section: str = "All Sections (Sequence General)",
+        session: str = "All Sessions (Section General)",
         tags: str = "",
         file_unique_id: Optional[str] = None,
         file_name: Optional[str] = None,
@@ -414,14 +431,14 @@ class Database:
                 """
                 INSERT INTO resources (
                     file_id, file_unique_id, file_type, file_name, file_size, mime_type,
-                    title, level, unit, category, tags,
+                    title, level, unit, section, session, category, tags,
                     uploader_id, uploader_name, uploader_username,
                     status, created_at, approved_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     file_id, file_unique_id, file_type, file_name, file_size, mime_type,
-                    title.strip(), level, unit, category, normalize_tags(tags),
+                    title.strip(), level, unit, section, session, category, normalize_tags(tags),
                     uploader_id, uploader_name, uploader_username,
                     status, now, now if status == "approved" else None,
                 ),
@@ -500,6 +517,8 @@ class Database:
         title: Optional[str] = None,
         level: Optional[str] = None,
         unit: Optional[str] = None,
+        section: Optional[str] = None,
+        session: Optional[str] = None,
         category: Optional[str] = None,
         tags: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
@@ -514,6 +533,12 @@ class Database:
         if unit is not None:
             updates.append("unit = ?")
             params.append(unit)
+        if section is not None:
+            updates.append("section = ?")
+            params.append(section)
+        if session is not None:
+            updates.append("session = ?")
+            params.append(session)
         if category is not None:
             updates.append("category = ?")
             params.append(category)
@@ -731,8 +756,9 @@ class Database:
             return [], 0
 
         haystack = (
-            "LOWER(r.title || ' ' || r.level || ' ' || r.unit || ' ' || r.category || ' ' "
-            "|| IFNULL(r.tags, '') || ' ' || IFNULL(r.file_name, ''))"
+            "LOWER(r.title || ' ' || r.level || ' ' || r.unit || ' ' "
+            "|| IFNULL(r.section, '') || ' ' || IFNULL(r.session, '') || ' ' "
+            "|| r.category || ' ' || IFNULL(r.tags, '') || ' ' || IFNULL(r.file_name, ''))"
         )
         match_parts, title_parts, params = [], [], []
         patterns = [f"%{escape_like(t)}%" for t in tokens]
@@ -766,6 +792,8 @@ class Database:
         self,
         level: str,
         unit: Optional[str] = None,
+        section: Optional[str] = None,
+        session: Optional[str] = None,
         category: Optional[str] = None,
         limit: int = 10,
         offset: int = 0,
@@ -775,6 +803,12 @@ class Database:
         if unit:
             where.append("unit = ?")
             params.append(unit)
+        if section:
+            where.append("section = ?")
+            params.append(section)
+        if session:
+            where.append("session = ?")
+            params.append(session)
         if category:
             where.append("category = ?")
             params.append(category)
@@ -790,8 +824,14 @@ class Database:
             ).fetchall()
         return self._rows(rows), int(total)
 
-    def facet_counts(self, level: Optional[str] = None, unit: Optional[str] = None) -> Dict[str, Dict[str, int]]:
-        """Counts of approved resources grouped by level, unit and category."""
+    def facet_counts(
+        self,
+        level: Optional[str] = None,
+        unit: Optional[str] = None,
+        section: Optional[str] = None,
+        session: Optional[str] = None,
+    ) -> Dict[str, Dict[str, int]]:
+        """Counts of approved resources grouped by level, sequence (unit), section, session and category."""
         where = ["status = 'approved'"]
         params: List[Any] = []
         if level:
@@ -800,10 +840,24 @@ class Database:
         if unit:
             where.append("unit = ?")
             params.append(unit)
+        if section:
+            where.append("section = ?")
+            params.append(section)
+        if session:
+            where.append("session = ?")
+            params.append(session)
         clause = " AND ".join(where)
-        result: Dict[str, Dict[str, int]] = {"levels": {}, "units": {}, "categories": {}}
+        result: Dict[str, Dict[str, int]] = {
+            "levels": {}, "units": {}, "sections": {}, "sessions": {}, "categories": {}
+        }
         with self._connect() as conn:
-            for col, key in (("level", "levels"), ("unit", "units"), ("category", "categories")):
+            for col, key in (
+                ("level", "levels"),
+                ("unit", "units"),
+                ("section", "sections"),
+                ("session", "sessions"),
+                ("category", "categories"),
+            ):
                 for row in conn.execute(
                     f"SELECT {col} AS k, COUNT(*) AS n FROM resources WHERE {clause} GROUP BY {col}",
                     params,
