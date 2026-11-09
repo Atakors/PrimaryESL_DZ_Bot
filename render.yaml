@@ -5,9 +5,9 @@ services:
     plan: free
     region: frankfurt
     buildCommand: pip install --no-cache-dir -r requirements.txt
-    # Keep --workers 1 so the in-memory upload wizard sessions, search cache,
-    # and SQLite file all live in a single process.
-    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
+    # Keep --workers 1 and --preload so the Gunicorn worker does not lose
+    # background threads to fork() and in-memory state stays in one process.
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120 --preload
     healthCheckPath: /
     autoDeploy: true
     envVars:

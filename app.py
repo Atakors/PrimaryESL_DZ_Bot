@@ -115,10 +115,14 @@ RUN_MODE = "starting"
 # =============================================================================
 # CORE OBJECTS
 # =============================================================================
+_last_update_info: Dict[str, Any] = {"at": None, "error": None}
+
+
 class _LogExceptions(telebot.ExceptionHandler):
     """Never let a handler error kill a worker thread — log it instead."""
 
     def handle(self, exception: Exception) -> bool:  # noqa: D401
+        _last_update_info["error"] = f"{type(exception).__name__}: {exception}"
         log.error("Unhandled error inside a bot handler: %s", exception, exc_info=exception)
         return True
 
@@ -126,8 +130,7 @@ class _LogExceptions(telebot.ExceptionHandler):
 bot = telebot.TeleBot(
     BOT_TOKEN,
     parse_mode="HTML",
-    threaded=True,
-    num_threads=4,
+    threaded=False,
     exception_handler=_LogExceptions(),
 )
 db = Database(DB_PATH)
@@ -1662,12 +1665,26 @@ def on_chosen_inline(result: types.ChosenInlineResult) -> None:
 # =============================================================================
 @app.route("/", methods=["GET", "HEAD"])
 def index():
+    webhook_info = None
+    try:
+        info = bot.get_webhook_info()
+        webhook_info = {
+            "url": info.url,
+            "pending_update_count": info.pending_update_count,
+            "last_error_date": info.last_error_date,
+            "last_error_message": info.last_error_message,
+        }
+    except Exception as exc:  # noqa: BLE001
+        webhook_info = {"error": str(exc)}
     return jsonify(
         status="ok",
         message="Primary ESL Bot is running!",
         bot=f"@{BOT_USERNAME}" if BOT_USERNAME else None,
         mode=RUN_MODE,
         webhook_url=f"{WEBHOOK_URL}/webhook" if WEBHOOK_URL else None,
+        telegram_webhook=webhook_info,
+        last_update_at=_last_update_info.get("at"),
+        last_update_error=_last_update_info.get("error"),
         uptime_seconds=int(time.time() - START_TIME),
         resources=db.count_resources("approved"),
     )
@@ -1680,13 +1697,18 @@ def health():
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    if request.headers.get("X-Telegram-Bot-Api-Secret-Token") != WEBHOOK_SECRET:
+    header_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
+    if header_secret and header_secret != WEBHOOK_SECRET:
+        log.warning("Rejected webhook request with mismatched secret token")
         abort(403)
     try:
-        update = types.Update.de_json(request.get_data(as_text=True))
+        raw_body = request.get_data(as_text=True)
+        update = types.Update.de_json(raw_body)
         if update is not None:
+            _last_update_info["at"] = int(time.time())
             bot.process_new_updates([update])
-    except Exception:  # noqa: BLE001 — always 200 so Telegram doesn't retry forever
+    except Exception as exc:  # noqa: BLE001 — always 200 so Telegram doesn't retry forever
+        _last_update_info["error"] = str(exc)
         log.exception("Failed to process webhook update")
     return "", 200
 
