@@ -1,0 +1,1066 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>@PrimaryESL_DZ_Bot — Graphical Curriculum Browser</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    @keyframes cardIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .card-anim {
+      animation: cardIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 antialiased min-h-screen selection:bg-emerald-500/30">
+
+  <!-- Top Sticky Header -->
+  <header class="sticky top-0 z-30 bg-slate-900/95 backdrop-blur border-b border-slate-800">
+    <div class="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+      <!-- Brand -->
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 via-teal-600 to-sky-600 flex items-center justify-center text-white font-extrabold text-sm shadow-md ring-1 ring-emerald-400/40">
+          DZ
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 id="uiHeaderTitle" class="text-base sm:text-lg font-bold text-white tracking-tight">
+              Primary ESL DZ — Visual Library
+            </h1>
+            <span id="miniAppBadge" class="hidden px-2 py-0.5 text-xs font-semibold rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30">
+              📱 Mini App
+            </span>
+          </div>
+          <p id="uiHeaderSub" class="text-xs text-slate-400">
+            Official Algerian Ministry Didactic Guide • 3PS · 4PS · 5PS
+          </p>
+        </div>
+      </div>
+
+      <!-- Right Controls: Stats + Language Switcher + Bot Link -->
+      <div class="flex items-center gap-2 flex-wrap">
+        <div class="hidden md:flex items-center gap-2 px-3 py-1 rounded-xl bg-slate-800/90 border border-slate-700/70 text-xs text-slate-300">
+          <span>📚 <strong id="statApproved" class="text-emerald-400">0</strong></span>
+          <span class="text-slate-600">•</span>
+          <span>📥 <strong id="statDownloads" class="text-sky-400">0</strong></span>
+          <span class="text-slate-600">•</span>
+          <span>✍️ <strong id="statContributors" class="text-amber-400">0</strong></span>
+        </div>
+
+        <!-- Language Switcher -->
+        <div class="inline-flex rounded-xl bg-slate-800 p-0.5 border border-slate-700/80 text-xs">
+          <button onclick="setLang('en')" id="langBtn_en" class="px-2.5 py-1 rounded-lg font-semibold transition">🇬🇧 EN</button>
+          <button onclick="setLang('ar')" id="langBtn_ar" class="px-2.5 py-1 rounded-lg font-semibold transition">🇩🇿 AR</button>
+          <button onclick="setLang('fr')" id="langBtn_fr" class="px-2.5 py-1 rounded-lg font-semibold transition">🇫🇷 FR</button>
+        </div>
+
+        <a id="openBotTopLink" href="https://t.me/PrimaryESL_DZ_Bot" target="_blank" rel="noopener"
+           class="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow transition flex items-center gap-1.5">
+          <span>🤖</span>
+          <span id="uiOpenBot">Open Bot</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content Container -->
+  <main class="max-w-6xl mx-auto px-4 py-5 space-y-5">
+
+    <!-- Search + Sort Control Card -->
+    <section class="rounded-2xl bg-slate-900 border border-slate-800 p-4 shadow-lg space-y-4">
+      <div class="flex flex-col md:flex-row gap-3">
+        <!-- Instant Search Input -->
+        <div class="relative flex-1">
+          <span class="
+            absolute inset-y-0 left-3 flex items-center text-slate-400 pointer-events-none text-sm
+          ">🔍</span>
+          <input
+            id="searchInput"
+            type="text"
+            oninput="onSearchInput(this.value)"
+            placeholder="Search by keyword, topic, sequence, or Arabic/French term (e.g. 3ps family flashcards, 5ps jobs exam)..."
+            class="w-full pl-9 pr-9 py-2.5 rounded-xl bg-slate-950 border border-slate-700/80 focus:border-emerald-500 focus:outline-none text-sm text-white placeholder-slate-500 transition"
+          />
+          <button
+            id="clearSearchBtn"
+            onclick="clearSearch()"
+            class="hidden absolute inset-y-0 right-2.5 my-auto w-6 h-6 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs flex items-center justify-center"
+            title="Clear search"
+          >✕</button>
+        </div>
+
+        <!-- Sort Segmented Buttons -->
+        <div class="flex items-center gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800 shrink-0">
+          <span id="uiSortLabel" class="text-xs text-slate-400 px-2 hidden sm:inline">Sort:</span>
+          <button onclick="setSort('downloads')" id="sortBtn_downloads" class="px-3 py-1.5 rounded-lg text-xs font-semibold transition">
+            🔥 <span id="uiSortDownloads">Most Downloaded</span>
+          </button>
+          <button onclick="setSort('newest')" id="sortBtn_newest" class="px-3 py-1.5 rounded-lg text-xs font-semibold transition">
+            🆕 <span id="uiSortNewest">Newest</span>
+          </button>
+          <button onclick="setSort('likes')" id="sortBtn_likes" class="px-3 py-1.5 rounded-lg text-xs font-semibold transition">
+            ❤️ <span id="uiSortLikes">Most Liked</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Grade Level Tabs (All / 3PS / 4PS / 5PS) -->
+      <div class="flex items-center gap-2 overflow-x-auto no-scrollbar pt-1" id="levelTabs">
+        <!-- Populated dynamically -->
+      </div>
+
+      <!-- Cascading Official Didactic Tree Filters (Sequence → Section → Session → Category) -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 pt-1">
+        <!-- Sequence Select -->
+        <div>
+          <label id="lblSequence" class="block text-xs font-semibold text-slate-400 mb-1">
+            📂 Sequence (المقطع)
+          </label>
+          <select id="selSequence" onchange="onSequenceChange(this.value)"
+                  class="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200 focus:border-emerald-500 focus:outline-none">
+            <option value="">All Sequences</option>
+          </select>
+        </div>
+
+        <!-- Section Select -->
+        <div>
+          <label id="lblSection" class="block text-xs font-semibold text-slate-400 mb-1">
+            📑 Section (القسم)
+          </label>
+          <select id="selSection" onchange="onSectionChange(this.value)"
+                  class="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200 focus:border-emerald-500 focus:outline-none">
+            <option value="">All Sections</option>
+          </select>
+        </div>
+
+        <!-- Session Select -->
+        <div>
+          <label id="lblSession" class="block text-xs font-semibold text-slate-400 mb-1">
+            🎯 Session (الحصة)
+          </label>
+          <select id="selSession" onchange="onSessionChange(this.value)"
+                  class="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200 focus:border-emerald-500 focus:outline-none">
+            <option value="">All Sessions</option>
+          </select>
+        </div>
+
+        <!-- Category Select -->
+        <div>
+          <label id="lblCategory" class="block text-xs font-semibold text-slate-400 mb-1">
+            🗂️ Category (نوع الملف)
+          </label>
+          <select id="selCategory" onchange="onCategoryChange(this.value)"
+                  class="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200 focus:border-emerald-500 focus:outline-none">
+            <option value="">All Categories</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Active Breadcrumb & Reset Bar -->
+      <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/80 text-xs">
+        <div class="flex flex-wrap items-center gap-1.5" id="activeFilterPills">
+          <!-- Populated dynamically -->
+        </div>
+        <div class="flex items-center gap-3">
+          <span id="resultsCountText" class="text-slate-400 font-medium">Loading resources...</span>
+          <button id="resetFiltersBtn" onclick="resetAllFilters()"
+                  class="hidden px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 font-semibold transition">
+            ✕ Reset Filters
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Resource Cards Grid -->
+    <section id="cardsGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <!-- Populated dynamically -->
+    </section>
+
+    <!-- Empty State -->
+    <section id="emptyState" class="hidden rounded-2xl bg-slate-900/70 border border-slate-800 p-10 text-center space-y-3">
+      <div class="text-4xl">🔍</div>
+      <h3 id="uiEmptyTitle" class="text-base font-bold text-white">No matching resources found</h3>
+      <p id="uiEmptySub" class="text-xs text-slate-400 max-w-md mx-auto">
+        Try clearing one of the filters above, searching with fewer words, or contribute a file to this section using /upload in the bot!
+      </p>
+      <div class="pt-2 flex justify-center gap-2">
+        <button onclick="resetAllFilters()" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition">
+          Show All Resources
+        </button>
+      </div>
+    </section>
+
+    <!-- Pagination Bar -->
+    <section id="paginationBar" class="hidden items-center justify-between pt-2">
+      <button id="prevPageBtn" onclick="changePage(-1)"
+              class="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-semibold text-slate-200 disabled:opacity-40 transition">
+        ⬅️ Previous
+      </button>
+      <span id="pageInfoText" class="text-xs font-semibold text-slate-400">Page 1 of 1</span>
+      <button id="nextPageBtn" onclick="changePage(1)"
+              class="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-semibold text-slate-200 disabled:opacity-40 transition">
+        Next ➡️
+      </button>
+    </section>
+
+  </main>
+
+  <!-- Toast Notification -->
+  <div id="toastBanner" class="fixed bottom-5 right-5 z-50 pointer-events-none opacity-0 translate-y-2 transition-all duration-300 px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-xs font-semibold shadow-2xl border border-emerald-400/40">
+    ✅ Action completed!
+  </div>
+
+  <script>
+    // =========================================================================
+    // FALLBACK CURRICULUM & DEMO DATA (Used when previewing outside Flask)
+    // =========================================================================
+    const FALLBACK_CURRICULUM = {
+      bot_username: "PrimaryESL_DZ_Bot",
+      stats: { approved: 8, downloads: 412, contributors: 5 },
+      levels: {
+        "3PS": {
+          label: "3PS — 3rd Year Primary",
+          icon: "📗",
+          sequences: {
+            "Seq 1: Family & Friends": ["Sec 1: Family", "Sec 2: Friends"],
+            "Seq 2: School": ["Sec 1: School Objects", "Sec 2: School Subjects"],
+            "Seq 3: Home": ["Sec 1: Parts of the House", "Sec 2: Furniture & Rooms"],
+            "Seq 4: Playtime": ["Sec 1: Toys", "Sec 2: Favourite Toys & Colours"],
+            "Seq 5: Pets": ["Sec 1: Pets", "Sec 2: Pet Body Parts"],
+            "Seq 6: Fancy Birthday": ["Sec 1: Birthday Party", "Sec 2: Food & Drinks"],
+            "General / Yearly Planning & Exams": ["All Sections (General / Exams)"]
+          },
+          sessions: [
+            "1. I Sing & Have Fun / I Listen & Repeat",
+            "2. I Read & Discover",
+            "3. I Read & Enjoy",
+            "4. I Learn to Write",
+            "5. I Play Roles",
+            "All Sessions (Section General)"
+          ]
+        },
+        "4PS": {
+          label: "4PS — 4th Year Primary",
+          icon: "📘",
+          sequences: {
+            "Seq 1: Family & Friends": ["Sec 1: Family", "Sec 2: Friends"],
+            "Seq 2: Occupations & Jobs": ["Sec 1: Jobs & Occupations", "Sec 2: Workplaces"],
+            "Seq 3: School": ["Sec 1: School Facilities", "Sec 2: School Alignment"],
+            "Seq 4: Health & Food": ["Sec 1: Healthy Food", "Sec 2: Health & Sickness"],
+            "Seq 5: Games & Fun": ["Sec 1: Games", "Sec 2: Fun & Leisure"],
+            "Seq 6: Celebrations": ["Sec 1: National & Religious Celebrations", "Sec 2: World Celebrations"],
+            "General / Yearly Planning & Exams": ["All Sections (General / Exams)"]
+          },
+          sessions: [
+            "1. I Sing & Have Fun / I Listen & Repeat",
+            "2. I Read & Discover",
+            "3. I Read & Enjoy",
+            "4. I Learn to Write",
+            "5. I Play Roles",
+            "All Sessions (Section General)"
+          ]
+        },
+        "5PS": {
+          label: "5PS — 5th Year Primary",
+          icon: "📙",
+          sequences: {
+            "Seq 1:ilers / Travelling & Holidays": ["Sec 1: Travelling", "Sec 2: Holidays"],
+            "Seq 2: Jobs, Occupations & Hobbies": ["Sec 1: Jobs & Occupations", "Sec 2: Hobbies"],
+            "Seq 3: Hometown & Amenities": ["Sec 1: Hometown & Directions", "Sec 2: Public Amenities"],
+            "Seq 4: Health, Food & Safety": ["Sec 1: Healthy Food & Habits", "Sec 2: Health & Safety"],
+            "General / Yearly Planning & Exams": ["All Sections (General / Exams)"]
+          },
+          sessions: [
+            "1. I Get Ready",
+            "2. I Listen & Interact",
+            "3. I Listen & Discover",
+            "4. I Read & Understand",
+            "5. I Read & Discover",
+            "6. I Learn to Write",
+            "7. I Write",
+            "8. I Check My Progress",
+            "All Sessions (Section General)"
+          ]
+        }
+      },
+      categories: [
+        "📝 Lesson Plans",
+        "🖼️ Flashcards & Posters",
+        "📄 Worksheets & Handouts",
+        "🎵 Songs, Audio & Videos",
+        "📊 Presentations (PPTX)",
+        "🎲 Games & Activities",
+        "📋 Tests & Assessments",
+        "📚 Yearly Plans & Didactic Guides"
+      ]
+    };
+
+    const FALLBACK_ITEMS = [
+      {
+        id: 1,
+        title: "3PS Family Members HD Flashcards (Printable A4)",
+        level: "3PS",
+        unit: "Seq 1: Family & Friends",
+        section: "Sec 1: Family",
+        session: "1. I Sing & Have Fun / I Listen & Repeat",
+        category: "🖼️ Flashcards & Posters",
+        file_type: "document",
+        file_name: "3PS_Seq1_Sec1_Family_Flashcards.pdf",
+        file_size: 2485120,
+        uploader_name: "Prof. Amine 🥇",
+        downloads: 142,
+        likes: 48,
+        created_at: "2026-11-09"
+      },
+      {
+        id: 2,
+        title: "5PS Sequence 2 Jobs & Occupations Reading Assessment + Key",
+        level: "5PS",
+        unit: "Seq 2: Jobs, Occupations & Hobbies",
+        section: "Sec 1: Jobs & Occupations",
+        session: "4. I Read & Understand",
+        category: "📋 Tests & Assessments",
+        file_type: "document",
+        file_name: "5PS_Seq2_Jobs_Reading_Test.docx",
+        file_size: 642000,
+        uploader_name: "Prof. Meriem 🥇",
+        downloads: 118,
+        likes: 39,
+        created_at: "2026-11-09"
+      },
+      {
+        id: 3,
+        title: "4PS School Objects Interactive Spinning Wheel Game",
+        level: "4PS",
+        unit: "Seq 3: School",
+        section: "Sec 1: School Facilities",
+        session: "1. I Sing & Have Fun / I Listen & Repeat",
+        category: "🎲 Games & Activities",
+        file_type: "document",
+        file_name: "4PS_Seq3_School_SpinningWheel.pptx",
+        file_size: 4194304,
+        uploader_name: "Prof. Karim 🥈",
+        downloads: 94,
+        likes: 31,
+        created_at: "2026-11-08"
+      },
+      {
+        id: 4,
+        title: "3PS Sequence 1 Complete Lesson Plans (All 5 Sessions)",
+        level: "3PS",
+        unit: "Seq 1: Family & Friends",
+        section: "Sec 2: Friends",
+        session: "All Sessions (Section General)",
+        category: "📝 Lesson Plans",
+        file_type: "document",
+        file_name: "3PS_Seq1_Complete_Lesson_Plans.pdf",
+        file_size: 1540000,
+        uploader_name: "Prof. Yasmine 🥇",
+        downloads: 87,
+        likes: 29,
+        created_at: "2026-11-08"
+      }
+    ];
+
+    // =========================================================================
+    // UI TRANSLATIONS (EN / AR / FR)
+    // =========================================================================
+    const I18N = {
+      en: {
+        headerTitle: "Primary ESL DZ — Visual Library",
+        headerSub: "Official Algerian Ministry Didactic Guide • 3PS · 4PS · 5PS",
+        openBot: "Open Bot",
+        searchPlaceholder: "Search by keyword, sequence, session, or Arabic/French term (e.g. 3ps family flashcards)...",
+        sortLabel: "Sort:",
+        sortDownloads: "Most Downloaded",
+        sortNewest: "Newest",
+        sortLikes: "Most Liked",
+        allLevels: "All Levels",
+        lblSeq: "📂 Sequence",
+        lblSec: "📑 Section",
+        lblSess: "🎯 Session",
+        lblCat: "🗂️ Category",
+        allSequences: "All Sequences",
+        allSections: "All Sections",
+        allSessions: "All Sessions",
+        allCategories: "All Categories",
+        btnDownload: "⬇️ Download",
+        btnSendTelegram: "📲 Send to Telegram",
+        btnOpenTelegram: "📲 Get in Telegram",
+        emptyTitle: "No matching resources found",
+        emptySub: "Try clearing a filter above, searching with fewer words, or share a file via /upload in the bot!"
+      },
+      ar: {
+        headerTitle: "المكتبة البصرية — Primary ESL DZ",
+        headerSub: "مصنفة وفق الدليل التربوي الرسمي لوزارة التربية الوطنية • 3PS · 4PS · 5PS",
+        openBot: "فتح البوت",
+        searchPlaceholder: "ابحث بالكلمة المفتاحية، المقطع، الحصة أو نوع الملف (مثال: 3ps family flashcards أو فرض)...",
+        sortLabel: "الترتيب:",
+        sortDownloads: "الأكثر تحميلاً",
+        sortNewest: "الأحدث",
+        sortLikes: "الأكثر إعجاباً",
+        allLevels: "جميع المستويات",
+        lblSeq: "📂 المقطع (Sequence)",
+        lblSec: "📑 القسم (Section)",
+        lblSess: "🎯 الحصة (Session)",
+        lblCat: "🗂️ التصنيف (Category)",
+        allSequences: "جميع المقاطع",
+        allSections: "جميع الأقسام",
+        allSessions: "جميع الحصص",
+        allCategories: "جميع التصنيفات",
+        btnDownload: "⬇️ تحميل مباشر",
+        btnSendTelegram: "📲 أرسل لمحادثتي",
+        btnOpenTelegram: "📲 فتح في تيليغرام",
+        emptyTitle: "لا توجد ملفات مطابقة للبحث",
+        emptySub: "جرّب إزالة بعض الفلاتر أعلاه أو البحث بكلمات أقل، أو شارك ملفك عبر الأمر /upload في البوت!"
+      },
+      fr: {
+        headerTitle: "Bibliothèque Visuelle — Primary ESL DZ",
+        headerSub: "Guide Didactique Officiel Algérien • 3PS · 4PS · 5PS",
+        openBot: "Ouvrir le Bot",
+        searchPlaceholder: "Rechercher par mot-clé, séquence, séance ou catégorie (ex: 3ps family flashcards)...",
+        sortLabel: "Trier :",
+        sortDownloads: "Plus téléchargés",
+        sortNewest: "Plus récents",
+        sortLikes: "Plus aimés",
+        allLevels: "Tous les niveaux",
+        lblSeq: "📂 Séquence",
+        lblSec: "📑 Section",
+        lblSess: "🎯 Séance",
+        lblCat: "🗂️ Catégorie",
+        allSequences: "Toutes les séquences",
+        allSections: "Toutes les sections",
+        allSessions: "Toutes les séances",
+        allCategories: "Toutes les catégories",
+        btnDownload: "⬇️ Télécharger",
+        btnSendTelegram: "📲 Envoyer sur Telegram",
+        btnOpenTelegram: "📲 Ouvrir sur Telegram",
+        emptyTitle: "Aucune ressource trouvée",
+        emptySub: "Essayez de réinitialiser les filtres ou partagez une ressource avec /upload dans le bot !"
+      }
+    };
+
+    // =========================================================================
+    // STATE
+    // =========================================================================
+    let curriculum = FALLBACK_CURRICULUM;
+    let isLiveApi = false;
+    let isTelegramMiniApp = false;
+    let tgInitData = "";
+    let currentLang = "en";
+
+    let state = {
+      q: "",
+      level: "",
+      unit: "",
+      section: "",
+      session: "",
+      category: "",
+      sort: "downloads",
+      page: 0,
+      limit: 12
+    };
+
+    let currentFacets = { levels: {}, units: {}, sections: {}, sessions: {}, categories: {} };
+    let searchDebounce = null;
+
+    // =========================================================================
+    // INITIALIZATION
+    // =========================================================================
+    window.addEventListener("DOMContentLoaded", async () => {
+      // Detect Telegram Mini App context
+      if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData) {
+        isTelegramMiniApp = true;
+        tgInitData = window.Telegram.WebApp.initData;
+        window.Telegram.WebApp.ready();
+        window.Telegram.WebApp.expand();
+        document.getElementById("miniAppBadge").classList.remove("hidden");
+      }
+
+      setLang("en", false);
+      updateSortButtons();
+
+      // Load curriculum metadata from live Flask server (or fallback)
+      try {
+        const res = await fetch("/api/curriculum");
+        if (res.ok) {
+          curriculum = await res.json();
+          isLiveApi = true;
+        }
+      } catch (_) {
+        isLiveApi = false;
+      }
+
+      if (curriculum.bot_username) {
+        document.getElementById("openBotTopLink").href = `https://t.me/${curriculum.bot_username}`;
+      }
+      if (curriculum.stats) {
+        document.getElementById("statApproved").textContent = curriculum.stats.approved ?? 0;
+        document.getElementById("statDownloads").textContent = curriculum.stats.downloads ?? 0;
+        document.getElementById("statContributors").textContent = curriculum.stats.contributors ?? 0;
+      }
+
+      populateFilterControls();
+      await loadResources();
+    });
+
+    // =========================================================================
+    // LANGUAGE & CONTROLS
+    // =========================================================================
+    function setLang(lang, reload = true) {
+      currentLang = I18N[lang] ? lang : "en";
+      const t = I18N[currentLang];
+      document.documentElement.dir = currentLang === "ar" ? "rtl" : "ltr";
+
+      ["en", "ar", "fr"].forEach((code) => {
+        const btn = document.getElementById(`langBtn_${code}`);
+        if (code === currentLang) {
+          btn.className = "px-2.5 py-1 rounded-lg font-semibold transition bg-emerald-600 text-white shadow";
+        } else {
+          btn.className = "px-2.5 py-1 rounded-lg font-semibold transition text-slate-400 hover:text-white";
+        }
+      });
+
+      document.getElementById("uiHeaderTitle").textContent = t.headerTitle;
+      document.getElementById("uiHeaderSub").textContent = t.headerSub;
+      document.getElementById("uiOpenBot").textContent = t.openBot;
+      document.getElementById("searchInput").placeholder = t.searchPlaceholder;
+      document.getElementById("uiSortLabel").textContent = t.sortLabel;
+      document.getElementById("uiSortDownloads").textContent = t.sortDownloads;
+      document.getElementById("uiSortNewest").textContent = t.sortNewest;
+      document.getElementById("uiSortLikes").textContent = t.sortLikes;
+      document.getElementById("lblSequence").textContent = t.lblSeq;
+      document.getElementById("lblSection").textContent = t.lblSec;
+      document.getElementById("lblSession").textContent = t.lblSess;
+      document.getElementById("lblCategory").textContent = t.lblCat;
+      document.getElementById("uiEmptyTitle").textContent = t.emptyTitle;
+      document.getElementById("uiEmptySub").textContent = t.emptySub;
+
+      if (reload) {
+        populateFilterControls();
+        loadResources();
+      }
+    }
+
+    function updateSortButtons() {
+      ["downloads", "newest", "likes"].forEach((s) => {
+        const el = document.getElementById(`sortBtn_${s}`);
+        if (s === state.sort) {
+          el.className = "px-3 py-1.5 rounded-lg text-xs font-semibold transition bg-emerald-600 text-white shadow";
+        } else {
+          el.className = "px-3 py-1.5 rounded-lg text-xs font-semibold transition text-slate-400 hover:text-white";
+        }
+      });
+    }
+
+    function setSort(sortKey) {
+      state.sort = sortKey;
+      state.page = 0;
+      updateSortButtons();
+      loadResources();
+    }
+
+    function onSearchInput(val) {
+      state.q = val.trim();
+      state.page = 0;
+      document.getElementById("clearSearchBtn").classList.toggle("hidden", !state.q);
+      clearTimeout(searchDebounce);
+      searchDebounce = setTimeout(() => {
+        loadResources();
+      }, 180);
+    }
+
+    function clearSearch() {
+      document.getElementById("searchInput").value = "";
+      onSearchInput("");
+    }
+
+    // =========================================================================
+    // CASCADING TREE CONTROLS
+    // =========================================================================
+    function selectLevel(lv) {
+      state.level = lv;
+      state.unit = "";
+      state.section = "";
+      state.session = "";
+      state.page = 0;
+      populateFilterControls();
+      loadResources();
+    }
+
+    function onSequenceChange(seq) {
+      state.unit = seq;
+      state.section = "";
+      state.page = 0;
+      populateFilterControls();
+      loadResources();
+    }
+
+    function onSectionChange(sec) {
+      state.section = sec;
+      state.page = 0;
+      loadResources();
+    }
+
+    function onSessionChange(sess) {
+      state.session = sess;
+      state.page = 0;
+      loadResources();
+    }
+
+    function onCategoryChange(cat) {
+      state.category = cat;
+      state.page = 0;
+      loadResources();
+    }
+
+    function resetAllFilters() {
+      state.q = "";
+      state.level = "";
+      state.unit = "";
+      state.section = "";
+      state.session = "";
+      state.category = "";
+      state.page = 0;
+      document.getElementById("searchInput").value = "";
+      document.getElementById("clearSearchBtn").classList.add("hidden");
+      populateFilterControls();
+      loadResources();
+    }
+
+    function changePage(delta) {
+      state.page = Math.max(0, state.page + delta);
+      loadResources();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function populateFilterControls() {
+      const t = I18N[currentLang];
+      const levelsObj = curriculum.levels || {};
+      const levelKeys = Object.keys(levelsObj);
+
+      // 1. Render Level Tabs
+      const totalAllLevels = Object.values(currentFacets.levels || {}).reduce((a, b) => a + b, 0);
+      const tabsHtml = [
+        `<button onclick="selectLevel('')" class="px-3.5 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap flex items-center gap-1.5 border ${
+          state.level === ""
+            ? "bg-emerald-600 text-white border-emerald-500 shadow"
+            : "bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700"
+        }">
+          <span>📚 ${t.allLevels}</span>
+          ${totalAllLevels ? `<span class="px-1.5 py-0.5 rounded-full bg-black/25 text-xs">${totalAllLevels}</span>` : ""}
+        </button>`
+      ];
+
+      levelKeys.forEach((lv) => {
+        const meta = levelsObj[lv];
+        const cnt = (currentFacets.levels && currentFacets.levels[lv]) || 0;
+        const active = state.level === lv;
+        tabsHtml.push(`
+          <button onclick="selectLevel('${lv}')" class="px-3.5 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap flex items-center gap-1.5 border ${
+            active
+              ? "bg-emerald-600 text-white border-emerald-500 shadow"
+              : "bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700"
+          }">
+            <span>${meta.icon || "🎓"} ${meta.label || lv}</span>
+            <span class="px-1.5 py-0.5 rounded-full ${active ? "bg-black/25 text-white" : "bg-slate-800 text-slate-400"} text-xs">${cnt}</span>
+          </button>
+        `);
+      });
+      document.getElementById("levelTabs").innerHTML = tabsHtml.join("");
+
+      // 2. Populate Sequences Dropdown
+      const seqSelect = document.getElementById("selSequence");
+      let sequencesList = [];
+      if (state.level && levelsObj[state.level]) {
+        sequencesList = Object.keys(levelsObj[state.level].sequences || {});
+      } else {
+        const seen = new Set();
+        levelKeys.forEach((lv) => {
+          Object.keys(levelsObj[lv].sequences || {}).forEach((s) => {
+            if (!seen.has(s)) {
+              seen.add(s);
+              sequencesList.push(s);
+            }
+          });
+        });
+      }
+      seqSelect.innerHTML = `<option value="">${t.allSequences}</option>` +
+        sequencesList.map((seq) => {
+          const cnt = (currentFacets.units && currentFacets.units[seq]) || 0;
+          const suffix = cnt ? ` (${cnt})` : "";
+          const selected = state.unit === seq ? "selected" : "";
+          return `<option value="${escapeHtml(seq)}" ${selected}>${escapeHtml(seq)}${suffix}</option>`;
+        }).join("");
+
+      // 3. Populate Sections Dropdown
+      const secSelect = document.getElementById("selSection");
+      let sectionsList = [];
+      if (state.unit) {
+        const targetLevels = state.level ? [state.level] : levelKeys;
+        const seenSec = new Set();
+        targetLevels.forEach((lv) => {
+          const secs = (levelsObj[lv]?.sequences || {})[state.unit] || [];
+          secs.forEach((sc) => {
+            if (!seenSec.has(sc)) {
+              seenSec.add(sc);
+              sectionsList.push(sc);
+            }
+          });
+        });
+      }
+      secSelect.innerHTML = `<option value="">${t.allSections}</option>` +
+        sectionsList.map((sec) => {
+          const cnt = (currentFacets.sections && currentFacets.sections[sec]) || 0;
+          const suffix = cnt ? ` (${cnt})` : "";
+          const selected = state.section === sec ? "selected" : "";
+          return `<option value="${escapeHtml(sec)}" ${selected}>${escapeHtml(sec)}${suffix}</option>`;
+        }).join("");
+
+      // 4. Populate Sessions Dropdown
+      const sessSelect = document.getElementById("selSession");
+      let sessionsList = [];
+      if (state.level && levelsObj[state.level]) {
+        sessionsList = levelsObj[state.level].sessions || [];
+      } else {
+        const seenSess = new Set();
+        levelKeys.forEach((lv) => {
+          (levelsObj[lv]?.sessions || []).forEach((ss) => {
+            if (!seenSess.has(ss)) {
+              seenSess.add(ss);
+              sessionsList.push(ss);
+            }
+          });
+        });
+      }
+      sessSelect.innerHTML = `<option value="">${t.allSessions}</option>` +
+        sessionsList.map((ss) => {
+          const cnt = (currentFacets.sessions && currentFacets.sessions[ss]) || 0;
+          const suffix = cnt ? ` (${cnt})` : "";
+          const selected = state.session === ss ? "selected" : "";
+          return `<option value="${escapeHtml(ss)}" ${selected}>${escapeHtml(ss)}${suffix}</option>`;
+        }).join("");
+
+      // 5. Populate Categories Dropdown
+      const catSelect = document.getElementById("selCategory");
+      const categoriesList = curriculum.categories || [];
+      catSelect.innerHTML = `<option value="">${t.allCategories}</option>` +
+        categoriesList.map((cat) => {
+          const cnt = (currentFacets.categories && currentFacets.categories[cat]) || 0;
+          const suffix = cnt ? ` (${cnt})` : "";
+          const selected = state.category === cat ? "selected" : "";
+          return `<option value="${escapeHtml(cat)}" ${selected}>${escapeHtml(cat)}${suffix}</option>`;
+        }).join("");
+    }
+
+    // =========================================================================
+    // FETCH & RENDER RESOURCES
+    // =========================================================================
+    async function loadResources() {
+      let items = [];
+      let total = 0;
+
+      if (isLiveApi) {
+        const params = new URLSearchParams({
+          q: state.q,
+          level: state.level,
+          unit: state.unit,
+          section: state.section,
+          session: state.session,
+          category: state.category,
+          sort: state.sort,
+          page: String(state.page),
+          limit: String(state.limit)
+        });
+        try {
+          const res = await fetch(`/api/resources?${params.toString()}`);
+          if (res.ok) {
+            const data = await res.json();
+            items = data.items || [];
+            total = data.total || 0;
+            if (data.facets) {
+              currentFacets = data.facets;
+              populateFilterControls();
+            }
+          }
+        } catch (err) {
+          console.error("Failed loading resources:", err);
+        }
+      } else {
+        // Offline / Artifact preview filtering
+        items = FALLBACK_ITEMS.filter((r) => {
+          if (state.level && r.level !== state.level) return false;
+          if (state.unit && r.unit !== state.unit) return false;
+          if (state.section && r.section !== state.section) return false;
+          if (state.session && r.session !== state.session) return false;
+          if (state.category && r.category !== state.category) return false;
+          if (state.q) {
+            const hay = `${r.title} ${r.level} ${r.unit} ${r.section} ${r.session} ${r.category} ${r.file_name}`.toLowerCase();
+            return state.q.toLowerCase().split(/\s+/).every((tok) => hay.includes(tok));
+          }
+          return true;
+        });
+        if (state.sort === "downloads") items.sort((a, b) => b.downloads - a.downloads);
+        else if (state.sort === "likes") items.sort((a, b) => b.likes - a.likes);
+        else items.sort((a, b) => b.id - a.id);
+        total = items.length;
+      }
+
+      renderActiveFilterPills(total);
+      renderCards(items, total);
+    }
+
+    function renderActiveFilterPills(total) {
+      const pills = [];
+      if (state.level) pills.push({ label: `🎓 ${state.level}`, clear: () => selectLevel("") });
+      if (state.unit) pills.push({ label: `📂 ${state.unit}`, clear: () => onSequenceChange("") });
+      if (state.section) pills.push({ label: `📑 ${state.section}`, clear: () => onSectionChange("") });
+      if (state.session) pills.push({ label: `🎯 ${state.session}`, clear: () => onSessionChange("") });
+      if (state.category) pills.push({ label: `${state.category}`, clear: () => onCategoryChange("") });
+      if (state.q) pills.push({ label: `🔎 "${state.q}"`, clear: () => clearSearch() });
+
+      const container = document.getElementById("activeFilterPills");
+      if (pills.length === 0) {
+        container.innerHTML = `<span class="text-slate-400">🌳 Showing full library across all levels &amp; sequences</span>`;
+        document.getElementById("resetFiltersBtn").classList.add("hidden");
+      } else {
+        container.innerHTML = pills
+          .map((p, idx) => `
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-medium">
+              <span>${escapeHtml(p.label)}</span>
+            </span>
+          `)
+          .join('<span class="text-slate-600">›</span>');
+        document.getElementById("resetFiltersBtn").classList.remove("hidden");
+      }
+
+      document.getElementById("resultsCountText").textContent = `${total} resource${total === 1 ? "" : "s"}`;
+    }
+
+    function fileBadgeMeta(r) {
+      const name = (r.file_name || "").toLowerCase();
+      if (name.endsWith(".pdf")) return { label: "PDF", cls: "bg-rose-500/20 text-rose-300 border-rose-500/30" };
+      if (name.endsWith(".doc") || name.endsWith(".docx")) return { label: "DOCX", cls: "bg-sky-500/20 text-sky-300 border-sky-500/30" };
+      if (name.endsWith(".ppt") || name.endsWith(".pptx")) return { label: "PPTX", cls: "bg-amber-500/20 text-amber-300 border-amber-500/30" };
+      if (r.file_type === "audio" || name.endsWith(".mp3") || name.endsWith(".m4a")) return { label: "AUDIO", cls: "bg-purple-500/20 text-purple-300 border-purple-500/30" };
+      if (r.file_type === "video" || name.endsWith(".mp4")) return { label: "VIDEO", cls: "bg-pink-500/20 text-pink-300 border-pink-500/30" };
+      if (r.file_type === "photo" || name.endsWith(".jpg") || name.endsWith(".png")) return { label: "IMAGE", cls: "bg-teal-500/20 text-teal-300 border-teal-500/30" };
+      return { label: "FILE", cls: "bg-slate-700 text-slate-300 border-slate-600" };
+    }
+
+    function formatBytes(bytes) {
+      if (!bytes || bytes <= 0) return "";
+      if (bytes < 1024) return `${bytes} B`;
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+      return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    }
+
+    function renderCards(items, total) {
+      const grid = document.getElementById("cardsGrid");
+      const empty = document.getElementById("emptyState");
+      const pag = document.getElementById("paginationBar");
+      const t = I18N[currentLang];
+
+      if (!items.length) {
+        grid.classList.add("hidden");
+        empty.classList.remove("hidden");
+        pag.classList.add("hidden");
+        return;
+      }
+
+      empty.classList.add("hidden");
+      grid.classList.remove("hidden");
+
+      const levelColors = {
+        "3PS": "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+        "4PS": "bg-sky-500/20 text-sky-300 border-sky-500/30",
+        "5PS": "bg-amber-500/20 text-amber-300 border-amber-500/30"
+      };
+
+      grid.innerHTML = items.map((r) => {
+        const badge = fileBadgeMeta(r);
+        const lvCls = levelColors[r.level] || "bg-slate-800 text-slate-300 border-slate-700";
+        const sizeStr = formatBytes(r.file_size);
+        const botUser = curriculum.bot_username || "PrimaryESL_DZ_Bot";
+        const deepLink = `https://t.me/${botUser}?start=get_${r.id}`;
+        const downloadUrl = `/api/download/${r.id}`;
+
+        return `
+          <article class="card-anim rounded-2xl bg-slate-900 border border-slate-800 hover:border-emerald-500/50 p-4 flex flex-col justify-between shadow-md transition group">
+            <div>
+              <!-- Top Badges Row -->
+              <div class="flex items-center justify-between gap-2 mb-2.5">
+                <div class="flex items-center gap-1.5">
+                  <span class="px-2 py-0.5 rounded-lg text-xs font-bold border ${lvCls}">
+                    ${escapeHtml(r.level)}
+                  </span>
+                  <span class="px-2 py-0.5 rounded-lg text-xs font-semibold bg-slate-800 text-slate-300">
+                    ${escapeHtml(r.category)}
+                  </span>
+                </div>
+                <span class="px-2 py-0.5 rounded-md text-xs font-bold border ${badge.cls}">
+                  ${badge.label}${sizeStr ? ` • ${sizeStr}` : ""}
+                </span>
+              </div>
+
+              <!-- Resource Title -->
+              <h3 class="text-sm sm:text-base font-bold text-white group-hover:text-emerald-300 transition leading-snug mb-2">
+                ${escapeHtml(r.title)}
+              </h3>
+
+              <!-- Official Didactic Tree Path -->
+              <div class="rounded-xl bg-slate-950/90 border border-slate-800/90 p-2.5 text-xs text-slate-300 space-y-1 mb-3">
+                <div class="truncate">📂 <span class="text-slate-400">Seq:</span> <strong>${escapeHtml(r.unit)}</strong></div>
+                <div class="truncate">📑 <span class="text-slate-400">Sec:</span> ${escapeHtml(r.section || "All Sections")}</div>
+                <div class="truncate">🎯 <span class="text-slate-400">Session:</span> ${escapeHtml(r.session || "All Sessions")}</div>
+              </div>
+            </div>
+
+            <div>
+              <!-- Meta Footer: Contributor + Counters -->
+              <div class="flex items-center justify-between text-xs text-slate-400 pb-3 mb-3 border-b border-slate-800/80">
+                <span class="truncate">👤 ${escapeHtml(r.uploader_name || "Teacher")}</span>
+                <div class="flex items-center gap-2 shrink-0">
+                  <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-semibold" id="dlCount_${r.id}">
+                    📥 ${r.downloads || 0}
+                  </span>
+                  <button onclick="likeResource(${r.id})" id="likeBtn_${r.id}"
+                          class="px-2 py-0.5 rounded bg-rose-500/15 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 font-semibold transition">
+                    ❤️ <span id="likeCount_${r.id}">${r.likes || 0}</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Dual Delivery Action Buttons -->
+              <div class="grid grid-cols-2 gap-2">
+                <a href="${downloadUrl}" target="_blank" onclick="onDirectDownload(${r.id}, event)"
+                   class="py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold text-center shadow transition flex items-center justify-center gap-1">
+                  <span>${t.btnDownload}</span>
+                </a>
+                ${
+                  isTelegramMiniApp
+                    ? `<button onclick="sendToTelegramChat(${r.id})"
+                         class="py-2 px-3 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold text-center shadow transition flex items-center justify-center gap-1">
+                         <span>${t.btnSendTelegram}</span>
+                       </button>`
+                    : `<a href="${deepLink}" target="_blank" rel="noopener"
+                         class="py-2 px-3 rounded-xl bg-sky-600/25 hover:bg-sky-600/40 text-sky-300 border border-sky-500/40 text-xs font-bold text-center transition flex items-center justify-center gap-1">
+                         <span>${t.btnOpenTelegram}</span>
+                       </a>`
+                }
+              </div>
+            </div>
+          </article>
+        `;
+      }).join("");
+
+      // Pagination controls
+      const pages = Math.max(1, Math.ceil(total / state.limit));
+      if (pages > 1) {
+        pag.classList.remove("hidden");
+        pag.classList.add("flex");
+        document.getElementById("pageInfoText").textContent = `Page ${state.page + 1} of ${pages}`;
+        document.getElementById("prevPageBtn").disabled = state.page <= 0;
+        document.getElementById("nextPageBtn").disabled = state.page >= pages - 1;
+      } else {
+        pag.classList.add("hidden");
+        pag.classList.remove("flex");
+      }
+    }
+
+    // =========================================================================
+    // ACTIONS: DOWNLOAD, SEND TO TELEGRAM CHAT, LIKE
+    // =========================================================================
+    function onDirectDownload(resourceId, event) {
+      const dlEl = document.getElementById(`dlCount_${resourceId}`);
+      if (dlEl) {
+        const cur = parseInt(dlEl.textContent.replace(/\D/g, ""), 10) || 0;
+        dlEl.textContent = `📥 ${cur + 1}`;
+      }
+      if (!isLiveApi) {
+        event.preventDefault();
+        showToast("📥 In live mode on Render, this downloads the file directly to your device!");
+      } else {
+        showToast("⬇️ Starting file download...");
+      }
+    }
+
+    async function sendToTelegramChat(resourceId) {
+      if (!isLiveApi) {
+        showToast("📲 Sent to your Telegram chat!");
+        return;
+      }
+      try {
+        const res = await fetch("/api/send_to_chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ resource_id: resourceId, init_data: tgInitData })
+        });
+        const data = await res.json();
+        if (res.ok && data.ok) {
+          showToast("✅ File sent to your Telegram chat!");
+          const dlEl = document.getElementById(`dlCount_${resourceId}`);
+          if (dlEl && data.downloads) dlEl.textContent = `📥 ${data.downloads}`;
+        } else {
+          showToast(`⚠️ ${data.error || "Could not send to chat"}`);
+        }
+      } catch (e) {
+        showToast("⚠️ Network error sending file to chat.");
+      }
+    }
+
+    async function likeResource(resourceId) {
+      const countEl = document.getElementById(`likeCount_${resourceId}`);
+      if (!isLiveApi) {
+        if (countEl) countEl.textContent = String((parseInt(countEl.textContent, 10) || 0) + 1);
+        showToast("❤️ Thanked the teacher for sharing this resource!");
+        return;
+      }
+      try {
+        const res = await fetch("/api/like", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ resource_id: resourceId, init_data: tgInitData })
+        });
+        const data = await res.json();
+        if (res.ok && data.ok && countEl) {
+          countEl.textContent = String(data.likes);
+          showToast(data.liked ? "❤️ Thanked the teacher!" : "ℹ️ Like removed");
+        }
+      } catch (_) {}
+    }
+
+    let toastTimer = null;
+    function showToast(msg) {
+      const banner = document.getElementById("toastBanner");
+      banner.textContent = msg;
+      banner.classList.remove("opacity-0", "translate-y-2");
+      banner.classList.add("opacity-100", "translate-y-0");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        banner.classList.add("opacity-0", "translate-y-2");
+        banner.classList.remove("opacity-100", "translate-y-0");
+      }, 2600);
+    }
+
+    function escapeHtml(str) {
+      return String(str || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+  </script>
+</body>
+</html>

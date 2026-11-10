@@ -928,6 +928,98 @@ class Database:
             ).fetchall()
         return self._rows(rows), int(total)
 
+    def query_library(
+        self,
+        *,
+        query: str = "",
+        level: Optional[str] = None,
+        unit: Optional[str] = None,
+        section: Optional[str] = None,
+        session: Optional[str] = None,
+        category: Optional[str] = None,
+        sort: str = "downloads",
+        limit: int = 12,
+        offset: int = 0,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """
+        Combined search + curriculum filter + sorting for the Graphical Browser.
+        ``sort`` may be ``'downloads'``, ``'newest'``, ``'likes'``, or ``'relevance'``.
+        """
+        where = ["r.status = 'approved'"]
+        filter_params: List[Any] = []
+        if level:
+            where.append("r.level = ?")
+            filter_params.append(level)
+        if unit:
+            where.append("r.unit = ?")
+            filter_params.append(unit)
+        if section:
+            where.append("r.section = ?")
+            filter_params.append(section)
+        if session:
+            where.append("r.session = ?")
+            filter_params.append(session)
+        if category:
+            where.append("r.category = ?")
+            filter_params.append(category)
+
+        sort_map = {
+            "downloads": "downloads DESC, likes DESC, id DESC",
+            "newest": "id DESC",
+            "likes": "IFNULL(likes, 0) DESC, downloads DESC, id DESC",
+        }
+        order_sql = sort_map.get(sort, "downloads DESC, id DESC")
+
+        tokens = tokenize_query(query) if (query or "").strip() else []
+        if tokens:
+            haystack = (
+                "LOWER(r.title || ' ' || r.level || ' ' || r.unit || ' ' "
+                "|| IFNULL(r.section, '') || ' ' || IFNULL(r.session, '') || ' ' "
+                "|| r.category || ' ' || IFNULL(r.tags, '') || ' ' || IFNULL(r.file_name, ''))"
+            )
+            match_parts, title_parts, token_params = [], [], []
+            patterns = [f"%{escape_like(t)}%" for t in tokens]
+            for _ in patterns:
+                match_parts.append(f"(CASE WHEN {haystack} LIKE ? {LIKE_ESCAPE} THEN 1 ELSE 0 END)")
+                title_parts.append(f"(CASE WHEN LOWER(r.title) LIKE ? {LIKE_ESCAPE} THEN 1 ELSE 0 END)")
+            token_params.extend(patterns)
+            token_params.extend(patterns)
+
+            inner = (
+                f"SELECT r.*, ({' + '.join(match_parts)}) AS matches, "
+                f"({' + '.join(title_parts)}) AS title_hits "
+                f"FROM resources r WHERE {' AND '.join(where)}"
+            )
+            min_matches = max(1, math.ceil(len(tokens) / 2))
+            full_params = (*token_params, *filter_params, min_matches)
+            search_order = (
+                f"matches DESC, title_hits DESC, {order_sql}"
+                if sort == "relevance"
+                else f"{order_sql}, matches DESC, title_hits DESC"
+            )
+            with self._connect() as conn:
+                total = conn.execute(
+                    f"SELECT COUNT(*) FROM ({inner}) WHERE matches >= ?", full_params
+                ).fetchone()[0]
+                rows = conn.execute(
+                    f"SELECT * FROM ({inner}) WHERE matches >= ? "
+                    f"ORDER BY {search_order} LIMIT ? OFFSET ?",
+                    (*full_params, limit, offset),
+                ).fetchall()
+            return self._rows(rows), int(total)
+
+        clause = " AND ".join(where)
+        with self._connect() as conn:
+            total = conn.execute(
+                f"SELECT COUNT(*) FROM resources r WHERE {clause}", filter_params
+            ).fetchone()[0]
+            rows = conn.execute(
+                f"SELECT r.* FROM resources r WHERE {clause} "
+                f"ORDER BY {order_sql} LIMIT ? OFFSET ?",
+                (*filter_params, limit, offset),
+            ).fetchall()
+        return self._rows(rows), int(total)
+
     def facet_counts(
         self,
         level: Optional[str] = None,

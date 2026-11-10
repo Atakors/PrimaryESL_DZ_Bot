@@ -24,8 +24,10 @@ Run on Render: gunicorn app:app ...     (webhook mode, see render.yaml)
 import atexit
 import csv
 import hashlib
+import hmac
 import html
 import io
+import json
 import logging
 import math
 import os
@@ -34,11 +36,12 @@ import secrets
 import sys
 import threading
 import time
+import urllib.parse
 from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Tuple
 
 import telebot
-from flask import Flask, Response, abort, jsonify, request
+from flask import Flask, Response, abort, jsonify, redirect, request
 from telebot import types, util
 from telebot.apihelper import ApiTelegramException
 
@@ -549,6 +552,7 @@ def deliver_resource(chat_id: int, user: types.User, resource_id: int) -> bool:
 # =============================================================================
 BTN_UPLOAD = "📤 Upload Resource"
 BTN_BROWSE = "📂 Browse by Level"
+BTN_WEB = "🌐 Web Library"
 BTN_BAG = "🎒 My Bag"
 BTN_MY_UPLOADS = "📁 My Uploads"
 BTN_LEADERS = "🏆 Contributors"
@@ -560,9 +564,13 @@ BTN_STATS = "📊 Stats"
 BTN_PENDING = "⏳ Pending"
 BTN_BULK = "📦 Bulk Upload"
 MENU_BUTTONS = {
-    BTN_UPLOAD, BTN_BROWSE, BTN_BAG, BTN_MY_UPLOADS, BTN_LEADERS,
+    BTN_UPLOAD, BTN_BROWSE, BTN_WEB, BTN_BAG, BTN_MY_UPLOADS, BTN_LEADERS,
     BTN_TOP, BTN_LATEST, BTN_ALERTS, BTN_HELP, BTN_STATS, BTN_PENDING, BTN_BULK,
 }
+
+
+def library_web_url() -> str:
+    return f"{WEBHOOK_URL}/library" if WEBHOOK_URL else ""
 
 
 def main_menu(user_id: int) -> types.ReplyKeyboardMarkup:
@@ -571,7 +579,15 @@ def main_menu(user_id: int) -> types.ReplyKeyboardMarkup:
         is_persistent=True,
         input_field_placeholder="Type keywords… e.g. 3ps family flashcards",
     )
-    kb.row(types.KeyboardButton(BTN_UPLOAD), types.KeyboardButton(BTN_BROWSE))
+    lib_url = library_web_url()
+    if lib_url.startswith("https://"):
+        kb.row(
+            types.KeyboardButton(BTN_UPLOAD),
+            types.KeyboardButton(BTN_BROWSE),
+            types.KeyboardButton(BTN_WEB, web_app=types.WebAppInfo(url=lib_url)),
+        )
+    else:
+        kb.row(types.KeyboardButton(BTN_UPLOAD), types.KeyboardButton(BTN_BROWSE), types.KeyboardButton(BTN_WEB))
     kb.row(types.KeyboardButton(BTN_BAG), types.KeyboardButton(BTN_MY_UPLOADS), types.KeyboardButton(BTN_LEADERS))
     kb.row(types.KeyboardButton(BTN_TOP), types.KeyboardButton(BTN_LATEST), types.KeyboardButton(BTN_ALERTS), types.KeyboardButton(BTN_HELP))
     if is_admin(user_id):
@@ -670,6 +686,12 @@ def kb_upload_confirm() -> types.InlineKeyboardMarkup:
 def kb_browse_levels() -> types.InlineKeyboardMarkup:
     counts = db.facet_counts()["levels"]
     kb = types.InlineKeyboardMarkup()
+    lib_url = library_web_url()
+    if lib_url.startswith("https://"):
+        kb.row(
+            types.InlineKeyboardButton("📱 Graphical Browser (Mini App)", web_app=types.WebAppInfo(url=lib_url)),
+            types.InlineKeyboardButton("🌐 Web Portal", url=lib_url),
+        )
     for level in cur.get_level_keys():
         kb.row(btn(f"{cur.level_button(level)} ({counts.get(level, 0)})", f"br_lv:{level}"))
     return kb
@@ -1476,10 +1498,40 @@ def cmd_cancel(message: types.Message) -> None:
     bot.send_message(message.chat.id, text, reply_markup=markup)
 
 
+def send_web_library_card(chat_id: int) -> None:
+    lib_url = library_web_url() or "https://primaryesl-dz-bot.onrender.com/library"
+    kb = types.InlineKeyboardMarkup()
+    if lib_url.startswith("https://"):
+        kb.row(
+            types.InlineKeyboardButton("📱 Open Mini App in Telegram", web_app=types.WebAppInfo(url=lib_url)),
+        )
+        kb.row(
+            types.InlineKeyboardButton("🌐 Open in Web Browser (PC / Phone)", url=lib_url),
+        )
+    bot.send_message(
+        chat_id,
+        "🌐 <b>Primary ESL DZ — Graphical Curriculum Browser</b>\n\n"
+        "Explore all <b>3PS, 4PS &amp; 5PS</b> resources visually with:\n"
+        "• 🔍 Instant search-as-you-type\n"
+        "• 🌳 Cascading <b>Level → Sequence → Section → Session → Category</b> filters\n"
+        "• 🔥 Sort by <b>Most Downloaded</b>, <b>Newest</b>, or <b>Most Liked</b>\n"
+        "• ⬇️ Direct browser download or one-tap delivery to your Telegram chat!\n\n"
+        f"🔗 Web Link: {h(lib_url)}",
+        reply_markup=kb if kb.keyboard else None,
+        disable_web_page_preview=True,
+    )
+
+
 @bot.message_handler(commands=["browse"])
 def cmd_browse(message: types.Message) -> None:
     register_user(message.from_user)
     send_browse_home(message.chat.id, message.from_user.id)
+
+
+@bot.message_handler(commands=["library", "web"])
+def cmd_library(message: types.Message) -> None:
+    register_user(message.from_user)
+    send_web_library_card(message.chat.id)
 
 
 @bot.message_handler(commands=["favorites", "bag"])
@@ -1757,6 +1809,8 @@ def on_menu_button(message: types.Message) -> None:
     register_user(message.from_user)
     if text == BTN_BROWSE:
         send_browse_home(message.chat.id, user_id)
+    elif text == BTN_WEB:
+        send_web_library_card(message.chat.id)
     elif text == BTN_BAG:
         body, kb = favorites_view(user_id, 0)
         bot.send_message(message.chat.id, body, reply_markup=kb)
@@ -2871,8 +2925,214 @@ def index():
         last_update_error=_last_update_info.get("error"),
         uptime_seconds=int(time.time() - START_TIME),
         resources=db.count_resources("approved"),
+        library_url=f"{WEBHOOK_URL}/library" if WEBHOOK_URL else "/library",
         tutorial_url=f"{WEBHOOK_URL}/tutorial" if WEBHOOK_URL else "/tutorial",
     )
+
+
+def _verify_webapp_init_data(init_data: str) -> Optional[Dict[str, Any]]:
+    """
+    Validate Telegram Mini App ``window.Telegram.WebApp.initData`` using HMAC-SHA256
+    as specified in https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
+    Returns the parsed ``user`` dict if valid, else None.
+    """
+    raw = (init_data or "").strip()
+    if not raw or not BOT_TOKEN:
+        return None
+    try:
+        parsed = dict(urllib.parse.parse_qsl(raw, keep_blank_values=True))
+        received_hash = parsed.pop("hash", "")
+        if not received_hash:
+            return None
+        data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(parsed.items()))
+        secret_key = hmac.new(b"WebAppData", BOT_TOKEN.encode("utf-8"), hashlib.sha256).digest()
+        expected_hash = hmac.new(secret_key, data_check_string.encode("utf-8"), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(received_hash, expected_hash):
+            return None
+        user_json = parsed.get("user")
+        return json.loads(user_json) if user_json else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _public_resource_dict(r: Dict[str, Any]) -> Dict[str, Any]:
+    """Serialize a resource row for the Graphical Browser without exposing internal file_id."""
+    return {
+        "id": r["id"],
+        "title": r["title"],
+        "level": r["level"],
+        "unit": r["unit"],
+        "section": r.get("section") or "All Sections (Sequence General)",
+        "session": r.get("session") or "All Sessions (Section General)",
+        "category": r["category"],
+        "file_type": r["file_type"],
+        "file_name": r.get("file_name") or f"resource_{r['id']}",
+        "file_size": r.get("file_size") or 0,
+        "mime_type": r.get("mime_type") or "",
+        "uploader_name": r.get("uploader_name") or "Fellow Teacher",
+        "downloads": int(r.get("downloads") or 0),
+        "likes": int(r.get("likes") or 0),
+        "created_at": (r.get("created_at") or "")[:10],
+        "approved_at": (r.get("approved_at") or "")[:10],
+    }
+
+
+@app.route("/library", methods=["GET"])
+def library_page():
+    lib_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "library.html")
+    if not os.path.isfile(lib_path):
+        abort(404)
+    with open(lib_path, "r", encoding="utf-8") as fh:
+        return Response(fh.read(), mimetype="text/html; charset=utf-8")
+
+
+@app.route("/api/curriculum", methods=["GET"])
+def api_curriculum():
+    s = db.stats()
+    levels_payload: Dict[str, Any] = {}
+    for lv in cur.get_level_keys():
+        levels_payload[lv] = {
+            "label": cur.level_label(lv),
+            "icon": cur.LEVELS[lv].get("icon", "🎓"),
+            "sequences": cur.LEVELS[lv]["sequences"],
+            "sessions": cur.get_sessions(lv),
+        }
+    return jsonify(
+        bot_username=BOT_USERNAME or "PrimaryESL_DZ_Bot",
+        stats={
+            "approved": s.get("approved", 0),
+            "downloads": s.get("downloads", 0),
+            "contributors": s.get("contributors", 0),
+            "users": s.get("users", 0),
+        },
+        levels=levels_payload,
+        categories=cur.CATEGORIES,
+    )
+
+
+@app.route("/api/resources", methods=["GET"])
+def api_resources():
+    q = (request.args.get("q") or "").strip()[:120]
+    level = (request.args.get("level") or "").strip()
+    unit = (request.args.get("unit") or "").strip()
+    section = (request.args.get("section") or "").strip()
+    session = (request.args.get("session") or "").strip()
+    category = (request.args.get("category") or "").strip()
+    sort = (request.args.get("sort") or "downloads").strip().lower()
+    if sort not in ("downloads", "newest", "likes", "relevance"):
+        sort = "downloads"
+    try:
+        page = max(0, int(request.args.get("page") or 0))
+    except ValueError:
+        page = 0
+    try:
+        limit = min(48, max(1, int(request.args.get("limit") or 12)))
+    except ValueError:
+        limit = 12
+
+    rows, total = db.query_library(
+        query=q,
+        level=level or None,
+        unit=unit or None,
+        section=section or None,
+        session=session or None,
+        category=category or None,
+        sort=sort,
+        limit=limit,
+        offset=page * limit,
+    )
+    facets = db.facet_counts(
+        level=level or None,
+        unit=unit or None,
+        section=section or None,
+        session=session or None,
+    )
+    return jsonify(
+        items=[_public_resource_dict(r) for r in rows],
+        total=total,
+        page=page,
+        limit=limit,
+        pages=max(1, math.ceil(total / limit)),
+        facets=facets,
+    )
+
+
+@app.route("/api/download/<int:resource_id>", methods=["GET"])
+def api_download_resource(resource_id: int):
+    r = db.get_resource(resource_id)
+    if not r or r.get("status") != "approved":
+        abort(404)
+    db.increment_downloads(resource_id)
+    deep_link = bot_link(f"get_{resource_id}") or f"https://t.me/{BOT_USERNAME or 'PrimaryESL_DZ_Bot'}?start=get_{resource_id}"
+    if r.get("file_size") and int(r["file_size"]) > MAX_RESTORE_BYTES:
+        return redirect(deep_link)
+    try:
+        file_info = bot.get_file(r["file_id"])
+        data = bot.download_file(file_info.file_path)
+        ext = os.path.splitext(file_info.file_path or "")[1]
+        raw_name = r.get("file_name") or f"{r['level']}_{r['title']}"
+        safe_name = re.sub(r"[^\w.\-() ]+", "_", raw_name).strip() or f"resource_{resource_id}"
+        if ext and not safe_name.lower().endswith(ext.lower()):
+            safe_name += ext
+        mime = r.get("mime_type") or "application/octet-stream"
+        headers = {
+            "Content-Disposition": f'attachment; filename="{safe_name}"',
+            "Cache-Control": "private, max-age=300",
+        }
+        return Response(data, mimetype=mime, headers=headers)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Direct browser download for #%s fell back to Telegram deep-link: %s", resource_id, exc)
+        return redirect(deep_link)
+
+
+@app.route("/api/send_to_chat", methods=["POST"])
+def api_send_to_chat():
+    payload = request.get_json(silent=True) or {}
+    try:
+        resource_id = int(payload.get("resource_id") or 0)
+    except (TypeError, ValueError):
+        return jsonify(ok=False, error="Invalid resource_id"), 400
+    r = db.get_resource(resource_id)
+    if not r or r.get("status") != "approved":
+        return jsonify(ok=False, error="Resource not found"), 404
+
+    user_dict = _verify_webapp_init_data(payload.get("init_data") or "")
+    if not user_dict or not user_dict.get("id"):
+        return jsonify(ok=False, error="Open inside Telegram Mini App to send directly to your chat."), 403
+
+    uid = int(user_dict["id"])
+    full_name = " ".join(p for p in (user_dict.get("first_name"), user_dict.get("last_name")) if p).strip()
+    db.touch_user(uid, full_name, user_dict.get("username") or "")
+    downloads = db.increment_downloads(resource_id)
+    r["downloads"] = downloads
+    try:
+        send_file(uid, r, resource_caption(r, downloads), markup=kb_resource_actions(uid, r))
+        return jsonify(ok=True, downloads=downloads)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("api_send_to_chat failed for user %s resource #%s: %s", uid, resource_id, exc)
+        return jsonify(ok=False, error="Could not send message (make sure you have started the bot)."), 500
+
+
+@app.route("/api/like", methods=["POST"])
+def api_like_resource():
+    payload = request.get_json(silent=True) or {}
+    try:
+        resource_id = int(payload.get("resource_id") or 0)
+    except (TypeError, ValueError):
+        return jsonify(ok=False, error="Invalid resource_id"), 400
+    r = db.get_resource(resource_id)
+    if not r or r.get("status") != "approved":
+        return jsonify(ok=False, error="Resource not found"), 404
+
+    user_dict = _verify_webapp_init_data(payload.get("init_data") or "")
+    if user_dict and user_dict.get("id"):
+        uid = int(user_dict["id"])
+    else:
+        # Anonymous web visitor fallback: deterministic hash per client IP so 1 like per IP
+        ip_raw = request.headers.get("X-Forwarded-For", request.remote_addr or "web")
+        uid = -abs(int(hashlib.sha256(ip_raw.encode("utf-8")).hexdigest()[:12], 16))
+    liked, total_likes = db.toggle_like(uid, resource_id)
+    return jsonify(ok=True, liked=liked, likes=total_likes)
 
 
 @app.route("/tutorial", methods=["GET"])
@@ -2923,6 +3183,7 @@ def _retry(fn, attempts: int = 3, delay: float = 2.0, what: str = "operation"):
 def setup_bot_commands() -> None:
     public = [
         types.BotCommand("start", "Main menu"),
+        types.BotCommand("library", "Open the Graphical Curriculum Browser"),
         types.BotCommand("search", "Search resources, e.g. /search 3ps family"),
         types.BotCommand("browse", "Browse by level, unit & category"),
         types.BotCommand("upload", "Share a resource with teachers"),
